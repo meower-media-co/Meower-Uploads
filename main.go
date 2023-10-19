@@ -45,8 +45,8 @@ func main() {
 	})
 
 	// Add routes
-	avatarsRouter := app.Group("/avatars")
-	avatarRoutes(avatarsRouter, db)
+	iconsRouter := app.Group("/icons")
+	iconRoutes(iconsRouter, db)
 
 	// Start fiber app
 	app.Listen(":3000")

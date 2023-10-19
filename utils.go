@@ -13,6 +13,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -31,16 +32,15 @@ type DirLookup struct {
 }
 
 type TokenClaims struct {
-	Type   string            `msgpack:"t"` // can be 'upload_file' or 'view_file' for uploads server
-	User   string            `msgpack:"u"`
-	Upload TokenUploadClaims `msgpack:"upload"`
+	Type      string            `msgpack:"t"` // can be 'upload_file' or 'view_file' for uploads server
+	ExpiresAt int64             `msgpack:"e"`
+	Upload    TokenUploadClaims `msgpack:"d"`
 }
 
 type TokenUploadClaims struct {
-	UploadID          string `msgpack:"upload_id"`
-	UploadType        string `msgpack:"type"`
-	MaxSize           int64  `msgpack:"max_size"`
-	AllowUncompressed bool   `msgpack:"allow_uncompressed"`
+	ID         string `msgpack:"id"`
+	MaxSize    int64  `msgpack:"max_size"`
+	Compressed bool   `msgpack:"allow_uncompressed"`
 }
 
 func getFileHash(data []byte) string {
@@ -111,12 +111,16 @@ func loadFile(fid string) (*http.Response, error) {
 func getTokenClaims(tokenString string) (bool, *TokenClaims, error) {
 	// Split token string
 	splitArgs := strings.Split(tokenString, ".")
+	if len(splitArgs) != 2 {
+		return false, nil, fmt.Errorf("failed to split token string")
+	}
 	encodedClaims := splitArgs[0]
 	encodedSignature := splitArgs[1]
 
 	// Decode claims
 	decodedClaims, err := base64.StdEncoding.DecodeString(encodedClaims)
 	if err != nil {
+		fmt.Println(err)
 		return false, nil, fmt.Errorf("failed to decode token claims")
 	}
 
@@ -125,6 +129,11 @@ func getTokenClaims(tokenString string) (bool, *TokenClaims, error) {
 	err = msgpack.Unmarshal(decodedClaims, &claims)
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to parse token claims")
+	}
+
+	// Make sure token hasn't expired
+	if claims.ExpiresAt <= time.Now().Unix() {
+		return false, nil, fmt.Errorf("token has expired")
 	}
 
 	// Decode signature
