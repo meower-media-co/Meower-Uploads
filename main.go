@@ -2,52 +2,69 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"log"
+	"net/http"
 	"os"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 )
+
+var ctx context.Context = context.Background()
+var minioClient *minio.Client
+var db *sql.DB
 
 func main() {
 	// Load dotenv
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found!")
+		panic("No .env file found!")
 	}
 
-	// Get MongoDB URI and MongoDB database name
-	var mongoUri = ""
-	if mongoUri = os.Getenv("MONGODB_URI"); mongoUri == "" {
-		mongoUri = "mongodb://127.0.0.1:27017"
-	}
-	var mongoDB = ""
-	if mongoDB = os.Getenv("MONGODB_NAME"); mongoDB == "" {
-		mongoDB = "meowerserver"
-	}
-
-	// Connect to MongoDB database
-	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(mongoUri))
+	// Initialise MinIO client
+	var err error
+	minioClient, err = minio.New(os.Getenv("MINIO_HOST"), &minio.Options{
+		Creds:  credentials.NewStaticV4(os.Getenv("MINIO_ROOT_USER"), os.Getenv("MINIO_ROOT_PASSWORD"), ""),
+		Secure: os.Getenv("MINIO_SSL") == "1",
+	})
 	if err != nil {
 		panic(err)
 	}
-	defer func() {
-		if err := client.Disconnect(context.TODO()); err != nil {
-			panic(err)
-		}
-	}()
-	db := client.Database("meowerserver")
 
-	// Create fiber app
-	app := fiber.New(fiber.Config{
-		BodyLimit: (32 << 20), // 32 MiB
-	})
+	// Create MinIO buckets
+	if err := createMinIOBuckets(); err != nil {
+		panic(err)
+	}
 
-	// Add routes
-	iconsRouter := app.Group("/icons")
-	iconRoutes(iconsRouter, db)
+	// Initialise database connection
+	db, err = sql.Open(os.Getenv("DB_DRIVER"), os.Getenv("DB_HOST"))
+	if err != nil {
+		panic(err)
+	}
 
-	// Start fiber app
-	app.Listen(":3000")
+	// Test database connection
+	if err := db.Ping(); err != nil {
+		panic(err)
+	}
+
+	// Create database tables
+	if err := createDBTables(); err != nil {
+		panic(err)
+	}
+
+	// Create HTTP router
+	r := chi.NewRouter()
+	r.Route("/icons", IconsRouter)
+	r.Route("/attachments", AttachmentsRouter)
+
+	// Serve HTTP router
+	port := os.Getenv("UPLOADS_PORT")
+	if port == "" {
+		port = "3000"
+	}
+	log.Println("Serving HTTP server on :" + port)
+	http.ListenAndServe(":"+port, r)
 }
