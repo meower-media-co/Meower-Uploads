@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -19,10 +20,8 @@ var minioClient *minio.Client
 var db *sql.DB
 
 func main() {
-	// Load dotenv
-	if err := godotenv.Load(); err != nil {
-		panic("No .env file found!")
-	}
+	// Attempt to load .env
+	godotenv.Load()
 
 	// Initialise MinIO client
 	var err error

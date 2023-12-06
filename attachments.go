@@ -1,16 +1,13 @@
 package main
 
 import (
-	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +32,7 @@ type Attachment struct {
 
 func AttachmentsRouter(r chi.Router) {
 	r.Get("/{id}/{filename}", func(w http.ResponseWriter, r *http.Request) {
+		/* This is disabled for now due to some concerns I have with it.
 		// Check URL query args
 		if !r.URL.Query().Has("ex") || !r.URL.Query().Has("hm") {
 			http.Error(w, "Bad request", http.StatusBadRequest)
@@ -60,10 +58,11 @@ func AttachmentsRouter(r chi.Router) {
 			http.Error(w, "Invalid signature", http.StatusUnauthorized)
 			return
 		}
+		*/
 
 		// Get attachment details from database
 		var attachment Attachment
-		err = db.QueryRow("SELECT * FROM attachments WHERE id=$1 AND filename=$2", chi.URLParam(r, "id"), chi.URLParam(r, "filename")).Scan(
+		err := db.QueryRow("SELECT * FROM attachments WHERE id=$1 AND filename=$2", chi.URLParam(r, "id"), chi.URLParam(r, "filename")).Scan(
 			&attachment.ID,
 			&attachment.Hash,
 			&attachment.Mime,

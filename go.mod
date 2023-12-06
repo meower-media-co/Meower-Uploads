@@ -6,6 +6,7 @@ require (
 	github.com/discord/lilliput v0.0.0-20230914023940-f3c639907ce4
 	github.com/go-chi/chi/v5 v5.0.10
 	github.com/joho/godotenv v1.5.1
+	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.18
 	github.com/minio/minio-go/v7 v7.0.63
 	github.com/vmihailenco/msgpack/v5 v5.4.0

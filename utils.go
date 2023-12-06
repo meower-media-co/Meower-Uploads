@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -180,7 +181,7 @@ func getTokenClaims(tokenString string) (*TokenClaims, error) {
 	}
 
 	// Validate signature
-	hmacHasher := hmac.New(sha256.New, []byte("abc"))
+	hmacHasher := hmac.New(sha256.New, []byte(os.Getenv("TOKEN_SECRET")))
 	hmacHasher.Write(decodedClaims)
 	if !reflect.DeepEqual(decodedSignature, hmacHasher.Sum(nil)) {
 		return &claims, fmt.Errorf("invalid token signature")
