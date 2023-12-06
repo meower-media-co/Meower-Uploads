@@ -58,15 +58,15 @@ func createMinIOBuckets() error {
 func createDBTables() error {
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS icons (
-			id STRING PRIMARY KEY,
-			hash STRING,
-			mime STRING,
+			id TEXT PRIMARY KEY,
+			hash TEXT,
+			mime TEXT,
 			size BIGINT,
-			width INT,
-			height INT,
-			uploaded_by STRING,
+			width INTEGER,
+			height INTEGER,
+			uploaded_by TEXT,
 			uploaded_at BIGINT,
-			used_by STRING
+			used_by TEXT
 		);
 	`); err != nil {
 		return err
@@ -87,16 +87,16 @@ func createDBTables() error {
 
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS attachments (
-			id STRING PRIMARY KEY,
-			hash STRING,
-			mime STRING,
-			filename STRING,
+			id TEXT PRIMARY KEY,
+			hash TEXT,
+			mime TEXT,
+			filename TEXT,
 			size BIGINT,
-			width INT,
-			height INT,
-			uploaded_by STRING,
-			uploaded_at BIGINT,
-			used_by STRING
+			width INTEGER,
+			height INTEGER,
+			uploaded_by TEXT,
+			uploaded_at TEXT,
+			used_by TEXT
 		);
 	`); err != nil {
 		return err
@@ -117,8 +117,8 @@ func createDBTables() error {
 
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS user_exports (
-			id STRING PRIMARY KEY,
-			user_id STRING,
+			id TEXT PRIMARY KEY,
+			user_id TEXT,
 			size BIGINT,
 			created_at BIGINT
 		);
@@ -133,10 +133,10 @@ func createDBTables() error {
 
 	if _, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS blocked (
-			hash STRING PRIMARY KEY,
-			reason STRING,
+			hash TEXT PRIMARY KEY,
+			reason TEXT,
 			auto_ban BOOL, /* only for really bad files, auto-bans the uploader if detected */
-			blocked_by STRING,
+			blocked_by TEXT,
 			blocked_at BIGINT
 		);
 	`); err != nil {

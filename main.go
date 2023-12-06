@@ -39,7 +39,7 @@ func main() {
 	}
 
 	// Initialise database connection
-	db, err = sql.Open(os.Getenv("DB_DRIVER"), os.Getenv("DB_HOST"))
+	db, err = sql.Open(os.Getenv("DB_DRIVER"), os.Getenv("DB_URI"))
 	if err != nil {
 		panic(err)
 	}
@@ -60,7 +60,7 @@ func main() {
 	r.Route("/attachments", AttachmentsRouter)
 
 	// Serve HTTP router
-	port := os.Getenv("UPLOADS_PORT")
+	port := os.Getenv("HTTP_PORT")
 	if port == "" {
 		port = "3000"
 	}
