@@ -59,15 +59,12 @@ func main() {
 	r := chi.NewRouter()
 
 	// Set CORS policy
-	c := cors.New(cors.Options{
+	r.Use(cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
 		AllowCredentials: true,
-	})
-	r.Use(func(next http.Handler) http.Handler {
-		return c.Handler(next)
-	})
+	}).Handler)
 
 	// Add routes
 	r.Route("/icons", IconsRouter)
