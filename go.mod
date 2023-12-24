@@ -9,6 +9,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.18
 	github.com/minio/minio-go/v7 v7.0.63
+	github.com/rs/cors v1.10.1
 	github.com/vmihailenco/msgpack/v5 v5.4.0
 )
 
