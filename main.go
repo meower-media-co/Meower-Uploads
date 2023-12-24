@@ -57,8 +57,6 @@ func main() {
 
 	// Create HTTP router
 	r := chi.NewRouter()
-	r.Route("/icons", IconsRouter)
-	r.Route("/attachments", AttachmentsRouter)
 
 	// Set CORS policy
 	c := cors.New(cors.Options{
@@ -70,6 +68,10 @@ func main() {
 	r.Use(func(next http.Handler) http.Handler {
 		return c.Handler(next)
 	})
+
+	// Add routes
+	r.Route("/icons", IconsRouter)
+	r.Route("/attachments", AttachmentsRouter)
 
 	// Serve HTTP router
 	port := os.Getenv("HTTP_PORT")
