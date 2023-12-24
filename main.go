@@ -62,12 +62,14 @@ func main() {
 
 	// Set CORS policy
 	c := cors.New(cors.Options{
-        AllowedOrigins:   []string{"*"},
-        AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-        AllowedHeaders:   []string{"*"},
-        AllowCredentials: true,
-    })
-	r.Use(c)
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"*"},
+		AllowCredentials: true,
+	})
+	r.Use(func(next http.Handler) http.Handler {
+		return c.Handler(next)
+	})
 
 	// Serve HTTP router
 	port := os.Getenv("HTTP_PORT")
