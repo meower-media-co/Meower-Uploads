@@ -13,6 +13,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/rs/cors"
 )
 
 var ctx context.Context = context.Background()
@@ -58,6 +59,15 @@ func main() {
 	r := chi.NewRouter()
 	r.Route("/icons", IconsRouter)
 	r.Route("/attachments", AttachmentsRouter)
+
+	// Set CORS policy
+	c := cors.New(cors.Options{
+        AllowedOrigins:   []string{"*"},
+        AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+        AllowedHeaders:   []string{"*"},
+        AllowCredentials: true,
+    })
+	r.Use(c)
 
 	// Serve HTTP router
 	port := os.Getenv("HTTP_PORT")
