@@ -29,3 +29,6 @@ go.work
 
 # Random test files
 tests/*
+
+# Docker compose
+docker-compose.yml

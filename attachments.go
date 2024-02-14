@@ -18,59 +18,31 @@ import (
 )
 
 type Attachment struct {
-	ID         string `json:"id"`
+	Id         string `json:"id"`
 	Hash       string `json:"hash"`
 	Mime       string `json:"mime"`
 	Filename   string `json:"filename"`
 	Size       int64  `json:"size"`
 	Width      int    `json:"width"`
 	Height     int    `json:"height"`
-	UploadedBy string `json:"uploaded_by"`
+	Uploader   string `json:"uploader"`
 	UploadedAt int64  `json:"uploaded_at"`
 	UsedBy     string `json:"used_by"`
 }
 
-func AttachmentsRouter(r chi.Router) {
+func attachmentsRouter(r chi.Router) {
 	r.Get("/{id}/{filename}", func(w http.ResponseWriter, r *http.Request) {
-		/* This is disabled for now due to some concerns I have with it.
-		// Check URL query args
-		if !r.URL.Query().Has("ex") || !r.URL.Query().Has("hm") {
-			http.Error(w, "Bad request", http.StatusBadRequest)
-			return
-		}
-
-		// Parse and check link expiration
-		expires, err := strconv.ParseInt(r.URL.Query().Get("ex"), 16, 64)
-		if err != nil || expires < time.Now().Unix() {
-			http.Error(w, "Link expired", http.StatusUnauthorized)
-			return
-		}
-
-		// Check signature
-		decodedSignature, err := base64.URLEncoding.DecodeString(r.URL.Query().Get("hm"))
-		if err != nil {
-			http.Error(w, "Failed to decode signature", http.StatusUnauthorized)
-			return
-		}
-		hmacHasher := hmac.New(sha256.New, []byte("abc"))
-		hmacHasher.Write([]byte(chi.URLParam(r, "id") + strconv.FormatInt(expires, 10)))
-		if !reflect.DeepEqual(decodedSignature, hmacHasher.Sum(nil)) {
-			http.Error(w, "Invalid signature", http.StatusUnauthorized)
-			return
-		}
-		*/
-
 		// Get attachment details from database
 		var attachment Attachment
 		err := db.QueryRow("SELECT * FROM attachments WHERE id=$1 AND filename=$2", chi.URLParam(r, "id"), chi.URLParam(r, "filename")).Scan(
-			&attachment.ID,
+			&attachment.Id,
 			&attachment.Hash,
 			&attachment.Mime,
 			&attachment.Filename,
 			&attachment.Size,
 			&attachment.Width,
 			&attachment.Height,
-			&attachment.UploadedBy,
+			&attachment.Uploader,
 			&attachment.UploadedAt,
 			&attachment.UsedBy,
 		)
@@ -89,7 +61,7 @@ func AttachmentsRouter(r chi.Router) {
 		}
 
 		// Get object from MinIO
-		object, err := minioClient.GetObject(ctx, "attachments", attachment.Hash, minio.GetObjectOptions{})
+		object, err := s3.GetObject(ctx, "attachments", attachment.Hash, minio.GetObjectOptions{})
 		if err != nil {
 			http.Error(w, "Failed to get attachment object", http.StatusInternalServerError)
 			return
@@ -160,7 +132,7 @@ func AttachmentsRouter(r chi.Router) {
 			return
 		} else if blocked {
 			if autoBan {
-				go banUser(tokenClaims.Data.UserID)
+				go banUser(tokenClaims.Data.Uploader, hashHex)
 			}
 			http.Error(w, "File is blocked", http.StatusForbidden)
 			return
@@ -169,14 +141,14 @@ func AttachmentsRouter(r chi.Router) {
 		// Get attachment details (if one exists with the same hash)
 		var attachment Attachment
 		db.QueryRow("SELECT * FROM attachments WHERE hash=$1", hashHex).Scan(
-			&attachment.ID,
+			&attachment.Id,
 			&attachment.Hash,
 			&attachment.Mime,
 			&attachment.Filename,
 			&attachment.Size,
 			&attachment.Width,
 			&attachment.Height,
-			&attachment.UploadedBy,
+			&attachment.Uploader,
 			&attachment.UploadedAt,
 			&attachment.UsedBy,
 		)
@@ -186,7 +158,7 @@ func AttachmentsRouter(r chi.Router) {
 		if attachment.Hash != hashHex {
 			// Upload to MinIO
 			file.Seek(0, 0)
-			_, err = minioClient.PutObject(ctx, "attachments", hashHex, file, header.Size, minio.PutObjectOptions{
+			_, err = s3.PutObject(ctx, "attachments", hashHex, file, header.Size, minio.PutObjectOptions{
 				ContentType: header.Header.Get("Content-Type"),
 			})
 			if err != nil {
@@ -229,27 +201,27 @@ func AttachmentsRouter(r chi.Router) {
 
 		// Create new attachment details
 		attachment = Attachment{
-			ID:         tokenClaims.Data.UploadID,
+			Id:         tokenClaims.Data.UploadId,
 			Hash:       hashHex,
 			Mime:       header.Header.Get("Content-Type"),
 			Filename:   header.Filename,
 			Size:       header.Size,
 			Width:      width,
 			Height:     height,
-			UploadedBy: tokenClaims.Data.UserID,
+			Uploader:   tokenClaims.Data.Uploader,
 			UploadedAt: time.Now().Unix(),
 		}
 
 		// Save attachment details to database
 		_, err = db.Exec(`INSERT INTO attachments VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`,
-			attachment.ID,
+			attachment.Id,
 			attachment.Hash,
 			attachment.Mime,
 			attachment.Filename,
 			attachment.Size,
 			attachment.Width,
 			attachment.Height,
-			attachment.UploadedBy,
+			attachment.Uploader,
 			attachment.UploadedAt,
 			attachment.UsedBy,
 		)

@@ -7,53 +7,73 @@ import (
 	"net/http"
 	"os"
 
+	_ "github.com/glebarez/go-sqlite"
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/cors"
 )
 
 var ctx context.Context = context.Background()
-var minioClient *minio.Client
 var db *sql.DB
+var rdb *redis.Client
+var s3 *minio.Client
 
 func main() {
-	// Attempt to load .env
+	var err error
+
+	// Load dotenv
 	godotenv.Load()
 
-	// Initialise MinIO client
-	var err error
-	minioClient, err = minio.New(os.Getenv("MINIO_HOST"), &minio.Options{
-		Creds:  credentials.NewStaticV4(os.Getenv("MINIO_ROOT_USER"), os.Getenv("MINIO_ROOT_PASSWORD"), ""),
+	// Check token secret
+	if os.Getenv("TOKEN_SECRET") == "" {
+		log.Fatalln("TOKEN_SECRET is not set. Please set up your environment variables.")
+	}
+
+	// Connect to the SQL database
+	db, err = sql.Open(os.Getenv("DB_DRIVER"), os.Getenv("DB_URI"))
+	if err != nil {
+		log.Fatalln(err)
+	}
+	if err := db.Ping(); err != nil {
+		log.Fatalln(err)
+	}
+
+	// Run database migrations
+	if err := runDBMigrations(); err != nil {
+		log.Fatalln(err)
+	}
+
+	// Connect to Redis
+	opt, err := redis.ParseURL(os.Getenv("REDIS_URI"))
+	if err != nil {
+		log.Fatalln(err)
+	}
+	rdb = redis.NewClient(opt)
+	_, err = rdb.Ping(ctx).Result()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	// Connect to MinIO
+	s3, err = minio.New(os.Getenv("MINIO_ENDPOINT"), &minio.Options{
+		Creds:  credentials.NewStaticV4(os.Getenv("MINIO_ACCESS_KEY"), os.Getenv("MINIO_SECRET_KEY"), ""),
 		Secure: os.Getenv("MINIO_SSL") == "1",
 	})
 	if err != nil {
-		panic(err)
+		log.Fatalln(err)
 	}
 
 	// Create MinIO buckets
 	if err := createMinIOBuckets(); err != nil {
-		panic(err)
+		log.Fatalln(err)
 	}
 
-	// Initialise database connection
-	db, err = sql.Open(os.Getenv("DB_DRIVER"), os.Getenv("DB_URI"))
-	if err != nil {
-		panic(err)
-	}
-
-	// Test database connection
-	if err := db.Ping(); err != nil {
-		panic(err)
-	}
-
-	// Create database tables
-	if err := createDBTables(); err != nil {
-		panic(err)
-	}
+	// Start pub/sub listener
+	go startPubSubListener()
 
 	// Create HTTP router
 	r := chi.NewRouter()
@@ -67,8 +87,9 @@ func main() {
 	}).Handler)
 
 	// Add routes
-	r.Route("/icons", IconsRouter)
-	r.Route("/attachments", AttachmentsRouter)
+	r.Route("/icons", iconsRouter)
+	r.Route("/attachments", attachmentsRouter)
+	r.Route("/data-exports", dataExportsRouter)
 
 	// Serve HTTP router
 	port := os.Getenv("HTTP_PORT")

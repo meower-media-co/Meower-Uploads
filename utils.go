@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -17,130 +18,33 @@ import (
 )
 
 type TokenClaims struct {
-	Type      string `msgpack:"t"` // can be 'upload_icon' or 'upload_attachment'
+	Type      string `msgpack:"t"` // can be 'upload_icon', 'upload_attachment', or 'access_data_export'
 	ExpiresAt int64  `msgpack:"e"`
 	Data      struct {
-		UploadID string `msgpack:"id"`
-		UserID   string `msgpack:"u"`
+		UploadId string `msgpack:"id"`
+		Uploader string `msgpack:"u"`
 		MaxSize  int64  `msgpack:"s"`
 	} `msgpack:"d"`
 }
 
 func createMinIOBuckets() error {
-	if exists, _ := minioClient.BucketExists(ctx, "icons"); !exists {
-		err := minioClient.MakeBucket(ctx, "icons", minio.MakeBucketOptions{})
+	if exists, _ := s3.BucketExists(ctx, "icons"); !exists {
+		err := s3.MakeBucket(ctx, "icons", minio.MakeBucketOptions{})
 		if err != nil {
 			log.Fatalln(err)
 		}
 	}
-	if exists, _ := minioClient.BucketExists(ctx, "attachments"); !exists {
-		err := minioClient.MakeBucket(ctx, "attachments", minio.MakeBucketOptions{})
+	if exists, _ := s3.BucketExists(ctx, "attachments"); !exists {
+		err := s3.MakeBucket(ctx, "attachments", minio.MakeBucketOptions{})
 		if err != nil {
 			log.Fatalln(err)
 		}
 	}
-	if exists, _ := minioClient.BucketExists(ctx, "user-exports"); !exists {
-		err := minioClient.MakeBucket(ctx, "user-exports", minio.MakeBucketOptions{})
+	if exists, _ := s3.BucketExists(ctx, "data-exports"); !exists {
+		err := s3.MakeBucket(ctx, "data-exports", minio.MakeBucketOptions{})
 		if err != nil {
 			log.Fatalln(err)
 		}
-	}
-	if exists, _ := minioClient.BucketExists(ctx, "db-backups"); !exists {
-		err := minioClient.MakeBucket(ctx, "db-backups", minio.MakeBucketOptions{})
-		if err != nil {
-			log.Fatalln(err)
-		}
-	}
-
-	return nil
-}
-
-func createDBTables() error {
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS icons (
-			id TEXT PRIMARY KEY,
-			hash TEXT,
-			mime TEXT,
-			size BIGINT,
-			width INTEGER,
-			height INTEGER,
-			uploaded_by TEXT,
-			uploaded_at BIGINT,
-			used_by TEXT
-		);
-	`); err != nil {
-		return err
-	}
-	if _, err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS icons_hash ON icons (hash);
-	`); err != nil {
-		return err
-	}
-	if _, err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS unused_icons ON icons (
-			used_by,
-			uploaded_at
-		) WHERE used_by = '';
-	`); err != nil {
-		return err
-	}
-
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS attachments (
-			id TEXT PRIMARY KEY,
-			hash TEXT,
-			mime TEXT,
-			filename TEXT,
-			size BIGINT,
-			width INTEGER,
-			height INTEGER,
-			uploaded_by TEXT,
-			uploaded_at TEXT,
-			used_by TEXT
-		);
-	`); err != nil {
-		return err
-	}
-	if _, err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS attachments_hash ON attachments (hash);
-	`); err != nil {
-		return err
-	}
-	if _, err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS unused_attachments ON attachments (
-			used_by,
-			uploaded_at
-		) WHERE used_by = '';
-	`); err != nil {
-		return err
-	}
-
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS user_exports (
-			id TEXT PRIMARY KEY,
-			user_id TEXT,
-			size BIGINT,
-			created_at BIGINT
-		);
-	`); err != nil {
-		return err
-	}
-	if _, err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS old_user_exports ON user_exports (created_at);
-	`); err != nil {
-		return err
-	}
-
-	if _, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS blocked (
-			hash TEXT PRIMARY KEY,
-			reason TEXT,
-			auto_ban BOOL, /* only for really bad files, auto-bans the uploader if detected */
-			blocked_by TEXT,
-			blocked_at BIGINT
-		);
-	`); err != nil {
-		return err
 	}
 
 	return nil
@@ -216,7 +120,7 @@ func cleanupIcons() {
 		}
 
 		if !multipleExists {
-			minioClient.RemoveObject(ctx, "icons", hash, minio.RemoveObjectOptions{})
+			s3.RemoveObject(ctx, "icons", hash, minio.RemoveObjectOptions{})
 		}
 
 		_, err = db.Exec("DELETE FROM icons WHERE id=$1", id)
@@ -258,47 +162,10 @@ func cleanupAttachments() {
 		}
 
 		if !multipleExists {
-			minioClient.RemoveObject(ctx, "attachments", hash, minio.RemoveObjectOptions{})
+			s3.RemoveObject(ctx, "attachments", hash, minio.RemoveObjectOptions{})
 		}
 
 		_, err = db.Exec("DELETE FROM attachments WHERE id=$1", id)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-	}
-
-	if err := rows.Err(); err != nil {
-		log.Println(err)
-		return
-	}
-}
-
-// Delete user exports that are more than 7 days old
-func cleanupUserExports() {
-	rows, err := db.Query("SELECT id FROM user_exports WHERE created_at < $1", time.Now().Unix()-259200)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var err error
-		var id string
-
-		if err = rows.Scan(&id); err != nil {
-			log.Println(err)
-			continue
-		}
-
-		err = minioClient.RemoveObject(ctx, "user_exports", id, minio.RemoveObjectOptions{})
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-
-		_, err = db.Exec("DELETE FROM user_exports WHERE id=$1", id)
 		if err != nil {
 			log.Println(err)
 			continue
@@ -325,8 +192,19 @@ func getBlockStatus(hashHex string) (bool, bool, error) {
 	}
 }
 
-// Contact the main API to ban a user by their ID.
-func banUser(userID string) error {
-	log.Println(userID, "would've been banned")
-	return nil
+// Send a request to the main server to ban a user by their username for
+// uploading a blocked file.
+func banUser(username string, fileHash string) error {
+	marshaledEvent, err := json.Marshal(map[string]string{
+		"op":     "ban_user",
+		"user":   username,
+		"state":  "perm_ban",
+		"reason": "",
+		"note":   "Automatically banned by the uploads server for uploading a file that was blocked and set to auto-ban the uploader.\nFile hash: " + fileHash,
+	})
+	if err != nil {
+		return err
+	}
+	err = rdb.Publish(ctx, "admin", marshaledEvent).Err()
+	return err
 }

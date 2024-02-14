@@ -19,29 +19,29 @@ import (
 )
 
 type Icon struct {
-	ID         string `json:"id"`
+	Id         string `json:"id"`
 	Hash       string `json:"hash"`
 	Mime       string `json:"mime"`
 	Size       int64  `json:"size"`
 	Width      int    `json:"width"`
 	Height     int    `json:"height"`
-	UploadedBy string `json:"uploaded_by"`
+	Uploader   string `json:"uploaded_by"`
 	UploadedAt int64  `json:"uploaded_at"`
 	UsedBy     string `json:"used_by"`
 }
 
-func IconsRouter(r chi.Router) {
+func iconsRouter(r chi.Router) {
 	r.Get("/{id}.{fileExt}", func(w http.ResponseWriter, r *http.Request) {
 		// Get icon details from database
 		var icon Icon
 		err := db.QueryRow("SELECT * FROM icons WHERE id=$1", chi.URLParam(r, "id")).Scan(
-			&icon.ID,
+			&icon.Id,
 			&icon.Hash,
 			&icon.Mime,
 			&icon.Size,
 			&icon.Width,
 			&icon.Height,
-			&icon.UploadedBy,
+			&icon.Uploader,
 			&icon.UploadedAt,
 			&icon.UsedBy,
 		)
@@ -60,7 +60,7 @@ func IconsRouter(r chi.Router) {
 		}
 
 		// Get object from MinIO
-		object, err := minioClient.GetObject(ctx, "icons", icon.Hash, minio.GetObjectOptions{})
+		object, err := s3.GetObject(ctx, "icons", icon.Hash, minio.GetObjectOptions{})
 		if err != nil {
 			http.Error(w, "Failed to get icon object", http.StatusInternalServerError)
 			return
@@ -127,7 +127,7 @@ func IconsRouter(r chi.Router) {
 			return
 		} else if blocked {
 			if autoBan {
-				go banUser(tokenClaims.Data.UserID)
+				go banUser(tokenClaims.Data.Uploader, hashHex)
 			}
 			http.Error(w, "File is blocked", http.StatusForbidden)
 			return
@@ -136,13 +136,13 @@ func IconsRouter(r chi.Router) {
 		// Get icon details (if one exists with the same hash)
 		var icon Icon
 		db.QueryRow("SELECT * FROM icons WHERE hash=$1", hashHex).Scan(
-			&icon.ID,
+			&icon.Id,
 			&icon.Hash,
 			&icon.Mime,
 			&icon.Size,
 			&icon.Width,
 			&icon.Height,
-			&icon.UploadedBy,
+			&icon.Uploader,
 			&icon.UploadedAt,
 			&icon.UsedBy,
 		)
@@ -212,7 +212,7 @@ func IconsRouter(r chi.Router) {
 			}
 
 			// Upload to MinIO
-			_, err = minioClient.PutObject(ctx, "icons", hashHex, bytes.NewReader(fileBytes), int64(len(fileBytes)), minio.PutObjectOptions{
+			_, err = s3.PutObject(ctx, "icons", hashHex, bytes.NewReader(fileBytes), int64(len(fileBytes)), minio.PutObjectOptions{
 				ContentType: header.Header.Get("Content-Type"),
 			})
 			if err != nil {
@@ -230,25 +230,25 @@ func IconsRouter(r chi.Router) {
 
 		// Create new icon details
 		icon = Icon{
-			ID:         tokenClaims.Data.UploadID,
+			Id:         tokenClaims.Data.UploadId,
 			Hash:       hashHex,
 			Mime:       header.Header.Get("Content-Type"),
 			Size:       header.Size,
 			Width:      width,
 			Height:     height,
-			UploadedBy: tokenClaims.Data.UserID,
+			Uploader:   tokenClaims.Data.Uploader,
 			UploadedAt: time.Now().Unix(),
 		}
 
 		// Save icon details to database
 		_, err = db.Exec(`INSERT INTO icons VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
-			icon.ID,
+			icon.Id,
 			icon.Hash,
 			icon.Mime,
 			icon.Size,
 			icon.Width,
 			icon.Height,
-			icon.UploadedBy,
+			icon.Uploader,
 			icon.UploadedAt,
 			icon.UsedBy,
 		)
