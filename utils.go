@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/lifecycle"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -45,6 +46,19 @@ func createMinIOBuckets() error {
 		if err != nil {
 			log.Fatalln(err)
 		}
+
+		// Set lifecycle policy for data-exports bucket
+		config := lifecycle.NewConfiguration()
+		config.Rules = []lifecycle.Rule{
+			{
+				ID:     "expire-after-7-days",
+				Status: "Enabled",
+				Expiration: lifecycle.Expiration{
+					Days: 7,
+				},
+			},
+		}
+		s3.SetBucketLifecycle(ctx, "data-exports", config)
 	}
 
 	return nil

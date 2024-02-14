@@ -63,6 +63,9 @@ func startPubSubListener() {
 					log.Println(err)
 				}
 			}
+		case "run_background_tasks":
+			go cleanupIcons()
+			go cleanupAttachments()
 		}
 	}
 }
