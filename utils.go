@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -209,7 +208,7 @@ func getBlockStatus(hashHex string) (bool, bool, error) {
 // Send a request to the main server to ban a user by their username for
 // uploading a blocked file.
 func banUser(username string, fileHash string) error {
-	marshaledEvent, err := json.Marshal(map[string]string{
+	marshaledEvent, err := msgpack.Marshal(map[string]string{
 		"op":     "ban_user",
 		"user":   username,
 		"state":  "perm_ban",

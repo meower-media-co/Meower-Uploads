@@ -1,8 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func startPubSubListener() {
@@ -10,7 +11,7 @@ func startPubSubListener() {
 	defer pubsub.Close()
 	for msg := range pubsub.Channel() {
 		var event map[string]string
-		err := json.Unmarshal([]byte(msg.Payload), &event)
+		err := msgpack.Unmarshal([]byte(msg.Payload), &event)
 		if err != nil {
 			log.Println(err)
 			continue
