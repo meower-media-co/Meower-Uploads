@@ -31,7 +31,7 @@ type Icon struct {
 }
 
 func iconsRouter(r chi.Router) {
-	r.Get("/{id}.{fileExt}", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/{id}", func(w http.ResponseWriter, r *http.Request) {
 		// Get icon details from database
 		var icon Icon
 		err := db.QueryRow("SELECT * FROM icons WHERE id=$1", chi.URLParam(r, "id")).Scan(
@@ -157,8 +157,8 @@ func iconsRouter(r chi.Router) {
 				"image/webp": ".webp",
 				"image/gif":  ".gif",
 			}[header.Header.Get("Content-Type")]
-			if fileExt == "" || !strings.HasSuffix(header.Filename, fileExt) {
-				http.Error(w, "Failed to calculate hash", http.StatusBadRequest)
+			if fileExt == "" {
+				http.Error(w, "Unsupported mime type", http.StatusBadRequest)
 				return
 			}
 
