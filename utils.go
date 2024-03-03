@@ -87,7 +87,7 @@ func getTokenClaims(tokenString string) (*TokenClaims, error) {
 	}
 
 	// Make sure token hasn't expired
-	if claims.ExpiresAt == time.Now().Unix() {
+	if claims.ExpiresAt <= time.Now().Unix() {
 		return nil, fmt.Errorf("token has expired")
 	}
 

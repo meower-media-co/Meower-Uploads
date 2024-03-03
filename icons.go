@@ -108,9 +108,17 @@ func iconsRouter(r chi.Router) {
 			return
 		}
 
+		// Read file
+		fileBytes := make([]byte, header.Size)
+		_, err = file.Read(fileBytes)
+		if err != nil {
+			http.Error(w, "Failed to read file", http.StatusInternalServerError)
+			return
+		}
+
 		// Get file hash
 		hash := sha256.New()
-		_, err = io.Copy(hash, file)
+		_, err = hash.Write(fileBytes)
 		if err != nil {
 			http.Error(w, "Failed to calculate hash", http.StatusInternalServerError)
 			return
@@ -132,23 +140,28 @@ func iconsRouter(r chi.Router) {
 			return
 		}
 
+		// Initialise icon details
+		icon := Icon{
+			Id:         tokenClaims.Data.UploadId,
+			Hash:       hashHex,
+			Uploader:   tokenClaims.Data.Uploader,
+			UploadedAt: time.Now().Unix(),
+		}
+
 		// Get icon details (if one exists with the same hash)
-		var icon Icon
-		db.QueryRow("SELECT * FROM icons WHERE hash=$1", hashHex).Scan(
-			&icon.Id,
-			&icon.Hash,
+		db.QueryRow(`SELECT (
+			mime,
+			size,
+			width,
+			height
+		) FROM icons WHERE hash=$1`, hashHex).Scan(
 			&icon.Mime,
 			&icon.Size,
 			&icon.Width,
 			&icon.Height,
-			&icon.Uploader,
-			&icon.UploadedAt,
-			&icon.UsedBy,
 		)
 
-		var width = icon.Width
-		var height = icon.Height
-		if icon.Hash != hashHex {
+		if icon.Mime == "" {
 			// Get file extension
 			fileExt := map[string]string{
 				"image/png":  ".webp",
@@ -160,13 +173,10 @@ func iconsRouter(r chi.Router) {
 				http.Error(w, "Unsupported mime type", http.StatusBadRequest)
 				return
 			}
-
-			// Get file bytes
-			file.Seek(0, 0)
-			fileBytes, err := io.ReadAll(file)
-			if err != nil {
-				log.Println(err)
-				return
+			if fileExt == ".gif" {
+				icon.Mime = "image/gif"
+			} else {
+				icon.Mime = "image/webp"
 			}
 
 			// Get lilliput decoder
@@ -185,58 +195,45 @@ func iconsRouter(r chi.Router) {
 			}
 
 			// Get width and height
-			width = lilliputHeader.Width()
-			height = lilliputHeader.Height()
+			icon.Width = lilliputHeader.Width()
+			if icon.Width > 256 {
+				icon.Width = 256
+			}
+			icon.Height = lilliputHeader.Height()
+			if icon.Height > 256 {
+				icon.Height = 256
+			}
+
+			// Create options
+			options := lilliput.ImageOptions{
+				FileType:     fileExt,
+				ResizeMethod: lilliput.ImageOpsFit,
+				Width:        icon.Width,
+				Height:       icon.Height,
+			}
 
 			// Create ops
 			ops := lilliput.NewImageOps(8192)
 			defer ops.Close()
 
-			// Create options
-			options := lilliput.ImageOptions{
-				ResizeMethod: lilliput.ImageOpsFit,
-			}
-			if width > 256 {
-				options.Width = 256
-			}
-			if height > 256 {
-				options.Height = 256
-			}
-
 			// Resize & convert image
 			fileBytes, err = ops.Transform(lilliputDecoder, &options, fileBytes)
 			if err != nil {
+				log.Println(err)
 				http.Error(w, "Failed to resize image", http.StatusInternalServerError)
 				return
 			}
+			icon.Size = int64(len(fileBytes))
 
 			// Upload to MinIO
 			_, err = s3.PutObject(ctx, "icons", hashHex, bytes.NewReader(fileBytes), int64(len(fileBytes)), minio.PutObjectOptions{
-				ContentType: header.Header.Get("Content-Type"),
+				ContentType: icon.Mime,
 			})
 			if err != nil {
 				log.Println(err)
 				http.Error(w, "Failed to save icon", http.StatusInternalServerError)
 				return
 			}
-
-			// Set new mime and size
-			if fileExt != ".gif" {
-				header.Header.Set("Content-Type", "image/webp")
-			}
-			header.Size = int64(len(fileBytes))
-		}
-
-		// Create new icon details
-		icon = Icon{
-			Id:         tokenClaims.Data.UploadId,
-			Hash:       hashHex,
-			Mime:       header.Header.Get("Content-Type"),
-			Size:       header.Size,
-			Width:      width,
-			Height:     height,
-			Uploader:   tokenClaims.Data.Uploader,
-			UploadedAt: time.Now().Unix(),
 		}
 
 		// Save icon details to database
