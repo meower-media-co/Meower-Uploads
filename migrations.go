@@ -44,10 +44,6 @@ func runDBMigrations() error {
 
 			// Create indexes
 			`CREATE INDEX IF NOT EXISTS icons_hash ON icons (hash);`,
-			`CREATE INDEX IF NOT EXISTS unused_icons ON icons (
-				used_by,
-				uploaded_at
-			) WHERE used_by = '';`,
 			`CREATE INDEX IF NOT EXISTS icons_uploader ON icons (uploader);`,
 			`CREATE INDEX IF NOT EXISTS attachments_hash ON attachments (hash);`,
 			`CREATE INDEX IF NOT EXISTS unused_attachments ON attachments (
@@ -69,10 +65,11 @@ func runDBMigrations() error {
 	if latestMigration < "2024-03-05" {
 		for _, query := range []string{
 			// Drop unused_icons index on icons
-			`DROP INDEX unused_icons;`,
+			`DROP INDEX IF EXISTS unused_icons;`,
 
 			// Drop used_by column from icons
-			`ALTER TABLE icons DROP COLUMN used_by;`,
+			`ALTER TABLE icons
+			DROP COLUMN used_by;`,
 
 			// Swap width and height columns in attachments
 			`UPDATE TABLE attachments SET width=height, height=width;`,
