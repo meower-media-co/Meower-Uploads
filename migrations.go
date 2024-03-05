@@ -72,7 +72,7 @@ func runDBMigrations() error {
 			DROP COLUMN used_by;`,
 
 			// Swap width and height columns in attachments
-			`UPDATE TABLE attachments SET width=height, height=width;`,
+			`UPDATE attachments SET width=height, height=width;`,
 
 			// Add migrations entry
 			`INSERT INTO migrations VALUES ('2024-03-05');`,
