@@ -193,8 +193,8 @@ func attachmentsRouter(r chi.Router) {
 						return
 					}
 
-					width = lilliputHeader.Height()
-					height = lilliputHeader.Width()
+					width = lilliputHeader.Width()
+					height = lilliputHeader.Height()
 				}()
 			}
 		}

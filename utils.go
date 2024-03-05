@@ -107,48 +107,6 @@ func getTokenClaims(tokenString string) (*TokenClaims, error) {
 	return &claims, nil
 }
 
-// Delete unused icons that are more than 10 minutes old
-func cleanupIcons() {
-	rows, err := db.Query("SELECT id, hash FROM icons WHERE used_by = '' AND uploaded_at < $1", time.Now().Unix()-600)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var err error
-		var id, hash string
-		var multipleExists bool
-
-		if err = rows.Scan(&id, &hash); err != nil {
-			log.Println(err)
-			continue
-		}
-
-		err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM icons WHERE hash = $1 AND id != $2)", hash, id).Scan(&multipleExists)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-
-		if !multipleExists {
-			s3.RemoveObject(ctx, "icons", hash, minio.RemoveObjectOptions{})
-		}
-
-		_, err = db.Exec("DELETE FROM icons WHERE id=$1", id)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-	}
-
-	if err := rows.Err(); err != nil {
-		log.Println(err)
-		return
-	}
-}
-
 // Delete unused attachments that are more than 10 minutes old
 func cleanupAttachments() {
 	rows, err := db.Query("SELECT id, hash FROM attachments WHERE used_by = '' AND uploaded_at < $1", time.Now().Unix()-600)

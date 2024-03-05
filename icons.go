@@ -26,7 +26,6 @@ type Icon struct {
 	Height     int    `json:"height"`
 	Uploader   string `json:"uploaded_by"`
 	UploadedAt int64  `json:"uploaded_at"`
-	UsedBy     string `json:"used_by"`
 }
 
 func iconsRouter(r chi.Router) {
@@ -42,7 +41,6 @@ func iconsRouter(r chi.Router) {
 			&icon.Height,
 			&icon.Uploader,
 			&icon.UploadedAt,
-			&icon.UsedBy,
 		)
 		if err == sql.ErrNoRows {
 			http.Error(w, "Icon not found", http.StatusNotFound)
@@ -237,7 +235,7 @@ func iconsRouter(r chi.Router) {
 		}
 
 		// Save icon details to database
-		_, err = db.Exec(`INSERT INTO icons VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
+		_, err = db.Exec(`INSERT INTO icons VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`,
 			icon.Id,
 			icon.Hash,
 			icon.Mime,
@@ -246,7 +244,6 @@ func iconsRouter(r chi.Router) {
 			icon.Height,
 			icon.Uploader,
 			icon.UploadedAt,
-			icon.UsedBy,
 		)
 		if err != nil {
 			http.Error(w, "Failed to save icon details", http.StatusInternalServerError)

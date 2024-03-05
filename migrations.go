@@ -65,5 +65,26 @@ func runDBMigrations() error {
 		}
 	}
 
+	// Getting ready for custom pfps & chat icons (2024-03-05)
+	if latestMigration < "2024-03-05" {
+		for _, query := range []string{
+			// Drop unused_icons index on icons
+			`DROP INDEX unused_icons;`,
+
+			// Drop used_by column from icons
+			`ALTER TABLE icons DROP COLUMN used_by;`,
+
+			// Swap width and height columns in attachments
+			`UPDATE TABLE attachments SET width=height, height=width;`,
+
+			// Add migrations entry
+			`INSERT INTO migrations VALUES ('2024-03-05');`,
+		} {
+			if _, err := db.Exec(query); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
