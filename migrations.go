@@ -83,5 +83,25 @@ func runDBMigrations() error {
 		}
 	}
 
+	// Clean up filenames
+	if latestMigration < "2024-03-31" {
+		rows, err := db.Query("SELECT id, filename FROM attachments")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id, filename string
+			if err := rows.Scan(&id, &filename); err != nil {
+				return err
+			}
+			if _, err := db.Exec("UPDATE attachments SET filename=$1 WHERE id=$2", cleanFilename(filename), id); err != nil {
+				return err
+			}
+		}
+		if _, err := db.Exec("INSERT INTO migrations VALUES ('2024-03-31')"); err != nil {
+			return err
+		}
+	}
 	return nil
 }

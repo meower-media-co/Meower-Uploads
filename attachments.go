@@ -34,7 +34,11 @@ func attachmentsRouter(r chi.Router) {
 	r.Get("/{id}/{filename}", func(w http.ResponseWriter, r *http.Request) {
 		// Get attachment details from database
 		var attachment Attachment
-		err := db.QueryRow("SELECT * FROM attachments WHERE id=$1 AND filename=$2", chi.URLParam(r, "id"), chi.URLParam(r, "filename")).Scan(
+		err := db.QueryRow(
+			"SELECT * FROM attachments WHERE id=$1 AND filename=$2",
+			chi.URLParam(r, "id"),
+			cleanFilename(chi.URLParam(r, "filename")),
+		).Scan(
 			&attachment.Id,
 			&attachment.Hash,
 			&attachment.Mime,
@@ -204,7 +208,7 @@ func attachmentsRouter(r chi.Router) {
 			Id:         tokenClaims.Data.UploadId,
 			Hash:       hashHex,
 			Mime:       header.Header.Get("Content-Type"),
-			Filename:   header.Filename,
+			Filename:   cleanFilename(header.Filename),
 			Size:       header.Size,
 			Width:      width,
 			Height:     height,

@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -178,4 +179,9 @@ func banUser(username string, fileHash string) error {
 	}
 	err = rdb.Publish(ctx, "admin", marshaledEvent).Err()
 	return err
+}
+
+func cleanFilename(filename string) string {
+	re := regexp.MustCompile(`[^A-Za-z0-9\.\-\_\+\!\(\)$]`)
+	return re.ReplaceAllString(filename, "_")
 }
