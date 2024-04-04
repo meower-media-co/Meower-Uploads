@@ -51,10 +51,10 @@ func attachmentsRouter(r chi.Router) {
 			&attachment.UsedBy,
 		)
 		if err == sql.ErrNoRows {
-			http.Error(w, "Not found", http.StatusNotFound)
+			http.Error(w, "sowwy uwu i c-couldnt find t-that f-file :3", http.StatusNotFound)
 			return
 		} else if err != nil {
-			http.Error(w, "Failed to get attachment details", http.StatusInternalServerError)
+			http.Error(w, "oopsies i did a fucky wucky uppy and i broeke something :3.. pls fix it urself", http.StatusInternalServerError)
 			return
 		}
 
@@ -67,7 +67,7 @@ func attachmentsRouter(r chi.Router) {
 		// Get object from MinIO
 		object, err := s3.GetObject(ctx, "attachments", attachment.Hash, minio.GetObjectOptions{})
 		if err != nil {
-			http.Error(w, "Failed to get attachment object", http.StatusInternalServerError)
+			http.Error(w, "ur mon lmaooo", http.StatusInternalServerError)
 			return
 		}
 		defer object.Close()
@@ -85,7 +85,7 @@ func attachmentsRouter(r chi.Router) {
 		// Copy the object data into the response body
 		_, err = io.Copy(w, object)
 		if err != nil {
-			http.Error(w, "Failed to send attachment object", http.StatusInternalServerError)
+			http.Error(w, "delicious", http.StatusInternalServerError)
 			return
 		}
 	})
@@ -94,27 +94,27 @@ func attachmentsRouter(r chi.Router) {
 		// Get token claims
 		tokenClaims, err := getTokenClaims(r.Header.Get("Authorization"))
 		if err != nil {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			http.Error(w, "tnix got angwy at u haha", http.StatusUnauthorized)
 			return
 		}
 
 		// Make sure token is valid
 		if tokenClaims.Type != "upload_attachment" {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			http.Error(w, "tnix got ewen mowe angy at  u hhahahha", http.StatusUnauthorized)
 			return
 		}
 
 		// Get file from request body
 		file, header, err := r.FormFile("file")
 		if err != nil {
-			http.Error(w, "Invalid form", http.StatusBadRequest)
+			http.Error(w, "u fucked up u loser", http.StatusBadRequest)
 			return
 		}
 		defer file.Close()
 
 		// Make sure file doesn't exceeed maximum size
 		if header.Size > tokenClaims.Data.MaxSize {
-			http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
+			http.Error(w, "ur thing is to big for me", http.StatusRequestEntityTooLarge)
 			return
 		}
 
@@ -122,7 +122,7 @@ func attachmentsRouter(r chi.Router) {
 		hash := sha256.New()
 		_, err = io.Copy(hash, file)
 		if err != nil {
-			http.Error(w, "Failed to calculate hash", http.StatusInternalServerError)
+			http.Error(w, "i fucked up lol ur problems now :3", http.StatusInternalServerError)
 			return
 		}
 
@@ -132,13 +132,13 @@ func attachmentsRouter(r chi.Router) {
 		// Make sure file hash isn't blocked
 		blocked, autoBan, err := getBlockStatus(hashHex)
 		if err != nil {
-			http.Error(w, "Failed to check block status", http.StatusInternalServerError)
+			http.Error(w, "die", http.StatusInternalServerError)
 			return
 		} else if blocked {
 			if autoBan {
 				go banUser(tokenClaims.Data.Uploader, hashHex)
 			}
-			http.Error(w, "File is blocked", http.StatusForbidden)
+			http.Error(w, "womp womp cry about it", http.StatusForbidden)
 			return
 		}
 
