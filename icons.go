@@ -6,10 +6,12 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/discord/lilliput"
@@ -30,9 +32,34 @@ type Icon struct {
 
 func iconsRouter(r chi.Router) {
 	r.Get("/{id}", func(w http.ResponseWriter, r *http.Request) {
+		// Get icon ID and extension
+		iconId := chi.URLParam(r, "id")
+		ext := ""
+		if strings.Contains(iconId, ".") {
+			// Split
+			parts := strings.Split(iconId, ".")
+			if len(parts) != 2 {
+				http.Error(w, "Icon not found", http.StatusNotFound)
+				return
+			}
+			iconId = parts[0]
+			ext = strings.ToLower(parts[1])
+
+			// Convert extension & make sure it's supported
+			if ext == "webp" || ext == "gif" {
+				ext = ""
+			} else if ext == "jpg" {
+				ext = "jpeg"
+			}
+			if ext != "" && ext != "png" && ext != "jpeg" {
+				http.Error(w, "Unsupported conversion", http.StatusBadRequest)
+				return
+			}
+		}
+
 		// Get icon details from database
 		var icon Icon
-		err := db.QueryRow("SELECT * FROM icons WHERE id=$1", chi.URLParam(r, "id")).Scan(
+		err := db.QueryRow("SELECT * FROM icons WHERE id=$1", iconId).Scan(
 			&icon.Id,
 			&icon.Hash,
 			&icon.Mime,
@@ -70,11 +97,61 @@ func iconsRouter(r chi.Router) {
 		w.Header().Set("ETag", icon.Hash)
 		w.Header().Set("Cache-Control", "pbulic, max-age=31536000") // 1 year cache (files should never change)
 
-		// Copy the object data into the response body
-		_, err = io.Copy(w, object)
-		if err != nil {
-			http.Error(w, "Failed to send icon object", http.StatusInternalServerError)
-			return
+		if ext == "" {
+			// Copy the object data into the response body
+			_, err = io.Copy(w, object)
+			if err != nil {
+				http.Error(w, "Failed to send icon object", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// Get file bytes
+			fileBytes := make([]byte, (8 << 20))
+			_, err = object.Read(fileBytes)
+			if err != io.EOF {
+				log.Println(err)
+				http.Error(w, "Failed to read file", http.StatusInternalServerError)
+				return
+			}
+
+			// Get lilliput decoder
+			lilliputDecoder, err := lilliput.NewDecoder(fileBytes)
+			if err != nil {
+				log.Println(err)
+				http.Error(w, "Failed to resize/convert image", http.StatusInternalServerError)
+				return
+			}
+			defer lilliputDecoder.Close()
+
+			// Create options
+			options := lilliput.ImageOptions{
+				FileType:     fmt.Sprint(".", ext),
+				ResizeMethod: lilliput.ImageOpsResize,
+				Width:        icon.Width,
+				Height:       icon.Height,
+			}
+
+			// Create ops
+			ops := lilliput.NewImageOps(8192)
+			defer ops.Close()
+
+			// Resize & convert image
+			fileBytes, err = ops.Transform(lilliputDecoder, &options, fileBytes)
+			if err != nil {
+				log.Println(err)
+				http.Error(w, "Failed to resize/convert image", http.StatusInternalServerError)
+				return
+			}
+
+			// Set new mime and size
+			w.Header().Set("Content-Type", map[string]string{
+				".png":  "image/png",
+				".jpeg": "image/jpeg",
+			}[ext])
+			w.Header().Set("Content-Length", strconv.FormatInt(int64(len(fileBytes)), 10))
+
+			// Write file bytes
+			w.Write(fileBytes)
 		}
 	})
 
@@ -107,7 +184,7 @@ func iconsRouter(r chi.Router) {
 		}
 
 		// Read file
-		fileBytes := make([]byte, header.Size)
+		fileBytes := make([]byte, (8 << 20))
 		_, err = file.Read(fileBytes)
 		if err != nil {
 			http.Error(w, "Failed to read file", http.StatusInternalServerError)
