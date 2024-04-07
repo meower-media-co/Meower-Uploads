@@ -145,8 +145,8 @@ func iconsRouter(r chi.Router) {
 
 			// Set new mime and size
 			w.Header().Set("Content-Type", map[string]string{
-				".png":  "image/png",
-				".jpeg": "image/jpeg",
+				"png":  "image/png",
+				"jpeg": "image/jpeg",
 			}[ext])
 			w.Header().Set("Content-Length", strconv.FormatInt(int64(len(fileBytes)), 10))
 
