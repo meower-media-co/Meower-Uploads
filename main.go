@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/getsentry/sentry-go"
 	_ "github.com/glebarez/go-sqlite"
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
@@ -15,6 +18,12 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/cors"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/reflection"
+
+	grpcAuth "github.com/meower-media-co/Meower-Uploads/grpc_auth"
+	grpcUploads "github.com/meower-media-co/Meower-Uploads/grpc_uploads"
 )
 
 var ctx context.Context = context.Background()
@@ -22,16 +31,18 @@ var db *sql.DB
 var rdb *redis.Client
 var s3 *minio.Client
 
+var grpcAuthClient grpcAuth.AuthClient
+
 func main() {
 	var err error
 
 	// Load dotenv
 	godotenv.Load()
 
-	// Check token secret
-	if os.Getenv("TOKEN_SECRET") == "" {
-		log.Fatalln("TOKEN_SECRET is not set. Please set up your environment variables.")
-	}
+	// Initialise Sentry
+	sentry.Init(sentry.ClientOptions{
+		Dsn: os.Getenv("SENTRY_DSN"),
+	})
 
 	// Connect to the SQL database
 	db, err = sql.Open(os.Getenv("DB_DRIVER"), os.Getenv("DB_URI"))
@@ -39,11 +50,6 @@ func main() {
 		log.Fatalln(err)
 	}
 	if err := db.Ping(); err != nil {
-		log.Fatalln(err)
-	}
-
-	// Run database migrations
-	if err := runDBMigrations(); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -67,29 +73,54 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	// Create MinIO buckets
-	if err := createMinIOBuckets(); err != nil {
+	// Run migrations
+	if err := runMigrations(); err != nil {
 		log.Fatalln(err)
 	}
 
-	// Start pub/sub listener
-	go startPubSubListener()
+	// Start gRPC Uploads service
+	go func() {
+		lis, err := net.Listen("tcp", os.Getenv("GRPC_UPLOADS_ADDRESS"))
+		if err != nil {
+			log.Fatalln(err)
+		}
+		s := grpc.NewServer()
+		reflection.Register(s)
+		grpcUploads.RegisterUploadsServer(s, grpcUploadsServer{})
+		if err := s.Serve(lis); err != nil {
+			log.Fatalln(err)
+		}
+	}()
+
+	// Connect to gRPC Auth service
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	grpcAuthConn, err := grpc.Dial(os.Getenv("GRPC_AUTH_ADDRESS"), opts...)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer grpcAuthConn.Close()
+	grpcAuthClient = grpcAuth.NewAuthClient(grpcAuthConn)
+
+	// Files cleanup
+	go func() {
+		for {
+			time.Sleep(time.Minute)
+			if err := cleanupFiles(); err != nil {
+				sentry.CaptureException(err)
+			}
+		}
+	}()
 
 	// Create HTTP router
 	r := chi.NewRouter()
-
-	// Set CORS policy
 	r.Use(cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
 		AllowedHeaders:   []string{"*"},
 		AllowCredentials: true,
 	}).Handler)
-
-	// Add routes
-	r.Route("/icons", iconsRouter)
-	r.Route("/attachments", attachmentsRouter)
-	r.Route("/data-exports", dataExportsRouter)
+	r.Route("/", router)
 
 	// Serve HTTP router
 	port := os.Getenv("HTTP_PORT")

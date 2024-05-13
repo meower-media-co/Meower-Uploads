@@ -1,153 +1,154 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
+	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
-	"fmt"
-	"log"
-	"os"
-	"reflect"
+	"errors"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/lifecycle"
+	"github.com/discord/lilliput"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-type TokenClaims struct {
-	Type      string `msgpack:"t"` // can be 'upload_icon', 'upload_attachment', or 'access_data_export'
-	ExpiresAt int64  `msgpack:"e"`
-	Data      struct {
-		UploadId string `msgpack:"id"`
-		Uploader string `msgpack:"u"`
-		MaxSize  int64  `msgpack:"s"`
-	} `msgpack:"d"`
+var SupportedImages = map[string]bool{
+	"image/png":  true,
+	"image/jpeg": true,
+	"image/webp": true,
+	"image/gif":  true,
 }
 
-func createMinIOBuckets() error {
-	if exists, _ := s3.BucketExists(ctx, "icons"); !exists {
-		err := s3.MakeBucket(ctx, "icons", minio.MakeBucketOptions{})
-		if err != nil {
-			log.Fatalln(err)
-		}
+var (
+	ErrUnsupportedFile    = errors.New("unsupported file")
+	ErrFileBlocked        = errors.New("file blocked")
+	ErrFileAlreadyClaimed = errors.New("file already claimed")
+	ErrMismatchedBucket   = errors.New("mismatched bucket")
+	ErrUnauthorized       = errors.New("unauthorized")
+)
+
+func generateId() (string, error) {
+	// Generate bytes
+	b := make([]byte, 18)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
 	}
-	if exists, _ := s3.BucketExists(ctx, "attachments"); !exists {
-		err := s3.MakeBucket(ctx, "attachments", minio.MakeBucketOptions{})
-		if err != nil {
-			log.Fatalln(err)
-		}
+
+	// Construct ID
+	id := base64.URLEncoding.EncodeToString(b)
+	id = strings.ReplaceAll(id, "-", "a")
+	id = strings.ReplaceAll(id, "_", "b")
+	id = strings.ReplaceAll(id, "=", "c")
+	return id, err
+}
+
+func cleanFilename(filename string) string {
+	re := regexp.MustCompile(`[^A-Za-z0-9\.\-\_\+\!\(\)$]`)
+	return re.ReplaceAllString(filename, "_")
+}
+
+func optimizeImage(imageBytes []byte, mime string, maxWidth int) ([]byte, string, error) {
+	// Get file extension
+	fileExt := map[string]string{
+		"image/png":  ".webp",
+		"image/jpeg": ".webp",
+		"image/webp": ".webp",
+		"image/gif":  ".gif",
+	}[mime]
+	if fileExt == "" {
+		return nil, "", ErrUnsupportedFile
 	}
-	if exists, _ := s3.BucketExists(ctx, "data-exports"); !exists {
-		err := s3.MakeBucket(ctx, "data-exports", minio.MakeBucketOptions{})
+
+	// Get lilliput decoder
+	lilliputDecoder, err := lilliput.NewDecoder(imageBytes)
+	if err != nil {
+		return nil, "", err
+	}
+	defer lilliputDecoder.Close()
+
+	// Get lilliput header
+	lilliputHeader, err := lilliputDecoder.Header()
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Create lilliput options
+	if lilliputHeader.Width() < maxWidth {
+		maxWidth = lilliputHeader.Width()
+	}
+	lilliputOpts := lilliput.ImageOptions{
+		FileType:     fileExt,
+		Width:        maxWidth,
+		Height:       (maxWidth * lilliputHeader.Height()) / lilliputHeader.Width(),
+		ResizeMethod: lilliput.ImageOpsResize,
+	}
+
+	// Create ops
+	lilliputOps := lilliput.NewImageOps(8192)
+	defer lilliputOps.Close()
+
+	// Transform image
+	newImageBytes, err := lilliputOps.Transform(lilliputDecoder, &lilliputOpts, make([]byte, len(imageBytes)*2))
+	newMime := map[string]string{
+		".webp": "image/webp",
+		".gif":  "image/gif",
+	}[fileExt]
+	return newImageBytes, newMime, err
+}
+
+// returns width x height
+func getMediaDimensions(fileBytes []byte) (int, int, error) {
+	// Get lilliput decoder
+	lilliputDecoder, err := lilliput.NewDecoder(fileBytes)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer lilliputDecoder.Close()
+
+	// Get lilliput header
+	lilliputHeader, err := lilliputDecoder.Header()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Return width x height
+	return lilliputHeader.Width(), lilliputHeader.Height(), nil
+}
+
+// Delete unclaimed files that are more than 10 minutes old
+func cleanupFiles() error {
+	// Get file IDs
+	rows, err := db.Query("SELECT id FROM files WHERE claimed = false AND uploaded_at < $1", time.Now().Unix()-600)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	fileIds := []string{}
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			return err
+		}
+		fileIds = append(fileIds, id)
+	}
+
+	// Delete files
+	for _, id := range fileIds {
+		// Get full file
+		f, err := GetFile(id)
 		if err != nil {
-			log.Fatalln(err)
+			return err
 		}
 
-		// Set lifecycle policy for data-exports bucket
-		config := lifecycle.NewConfiguration()
-		config.Rules = []lifecycle.Rule{
-			{
-				ID:     "expire-after-7-days",
-				Status: "Enabled",
-				Expiration: lifecycle.Expiration{
-					Days: 7,
-				},
-			},
+		// Delete file
+		if err = f.Delete(); err != nil {
+			return err
 		}
-		s3.SetBucketLifecycle(ctx, "data-exports", config)
 	}
 
 	return nil
-}
-
-func getTokenClaims(tokenString string) (*TokenClaims, error) {
-	// Split token string
-	splitArgs := strings.Split(tokenString, ".")
-	if len(splitArgs) != 2 {
-		return nil, fmt.Errorf("failed to split token string")
-	}
-	encodedClaims := splitArgs[0]
-	encodedSignature := splitArgs[1]
-
-	// Decode claims
-	decodedClaims, err := base64.URLEncoding.DecodeString(encodedClaims)
-	if err != nil {
-		fmt.Println(err)
-		return nil, fmt.Errorf("failed to decode token claims")
-	}
-
-	// Parse claims
-	var claims TokenClaims
-	err = msgpack.Unmarshal(decodedClaims, &claims)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse token claims")
-	}
-
-	// Make sure token hasn't expired
-	if claims.ExpiresAt <= time.Now().Unix() {
-		return nil, fmt.Errorf("token has expired")
-	}
-
-	// Decode signature
-	decodedSignature, err := base64.URLEncoding.DecodeString(encodedSignature)
-	if err != nil {
-		return &claims, fmt.Errorf("failed to decode token signature")
-	}
-
-	// Validate signature
-	hmacHasher := hmac.New(sha256.New, []byte(os.Getenv("TOKEN_SECRET")))
-	hmacHasher.Write(decodedClaims)
-	if !reflect.DeepEqual(decodedSignature, hmacHasher.Sum(nil)) {
-		return &claims, fmt.Errorf("invalid token signature")
-	}
-
-	return &claims, nil
-}
-
-// Delete unused attachments that are more than 10 minutes old
-func cleanupAttachments() {
-	rows, err := db.Query("SELECT id, hash FROM attachments WHERE used_by = '' AND uploaded_at < $1", time.Now().Unix()-600)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var err error
-		var id, hash string
-		var multipleExists bool
-
-		if err = rows.Scan(&id, &hash); err != nil {
-			log.Println(err)
-			continue
-		}
-
-		err = db.QueryRow("SELECT EXISTS(SELECT 1 FROM attachments WHERE hash = $1 AND id != $2)", hash, id).Scan(&multipleExists)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-
-		if !multipleExists {
-			s3.RemoveObject(ctx, "attachments", hash, minio.RemoveObjectOptions{})
-		}
-
-		_, err = db.Exec("DELETE FROM attachments WHERE id=$1", id)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-	}
-
-	if err := rows.Err(); err != nil {
-		log.Println(err)
-		return
-	}
 }
 
 // Get the block status of a file by its hash.
@@ -179,9 +180,4 @@ func banUser(username string, fileHash string) error {
 	}
 	err = rdb.Publish(ctx, "admin", marshaledEvent).Err()
 	return err
-}
-
-func cleanFilename(filename string) string {
-	re := regexp.MustCompile(`[^A-Za-z0-9\.\-\_\+\!\(\)$]`)
-	return re.ReplaceAllString(filename, "_")
 }
