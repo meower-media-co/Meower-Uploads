@@ -1,6 +1,11 @@
 package main
 
-func runDBMigrations() error {
+import (
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/lifecycle"
+)
+
+func runMigrations() error {
 	// Latest migration
 	var latestMigration string = ""
 	db.QueryRow("SELECT id FROM migrations ORDER BY id DESC LIMIT 1;").Scan(&latestMigration)
@@ -103,5 +108,176 @@ func runDBMigrations() error {
 			return err
 		}
 	}
+
+	// Big DB change
+	if latestMigration < "2024-05-12" {
+		// Create buckets
+		for _, bucketName := range []string{
+			"icons",
+			"attachments",
+			"attachment-previews",
+			"data-exports",
+		} {
+			if exists, _ := s3.BucketExists(ctx, bucketName); !exists {
+				if err := s3.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{}); err != nil {
+					return err
+				}
+			}
+		}
+
+		// Set lifecycle policy for attachment-previews and data-exports
+		config := lifecycle.NewConfiguration()
+		config.Rules = []lifecycle.Rule{
+			{
+				ID:     "expire-after-7-days",
+				Status: "Enabled",
+				Expiration: lifecycle.Expiration{
+					Days: 7,
+				},
+			},
+		}
+		s3.SetBucketLifecycle(ctx, "attachment-previews", config)
+		s3.SetBucketLifecycle(ctx, "data-exports", config)
+
+		// Create files table
+		if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS files (
+			id CHAR(24) PRIMARY KEY NOT NULL,
+			hash CHAR(64) NOT NULL,
+			bucket VARCHAR(255) NOT NULL,
+			filename VARCHAR(255) NOT NULL DEFAULT '',
+			width INTEGER NOT NULL DEFAULT 0,
+			height INTEGER NOT NULL DEFAULT 0,
+			uploaded_by VARCHAR(255) NOT NULL,
+			uploaded_at BIGINT NOT NULL,
+			claimed BOOLEAN NOT NULL DEFAULT false
+		);`); err != nil {
+			return err
+		}
+
+		// Migrate icons
+		rows, err := db.Query(`SELECT
+			id,
+			hash,
+			width,
+			height,
+			uploader,
+			uploaded_at
+		FROM icons;`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var f File
+			if err := rows.Scan(
+				&f.Id,
+				&f.Hash,
+				&f.Width,
+				&f.Height,
+				&f.UploadedBy,
+				&f.UploadedAt,
+			); err != nil {
+				return err
+			}
+
+			if _, err := db.Exec(`INSERT INTO files (
+				id,
+				hash,
+				bucket,
+				width,
+				height,
+				uploaded_by,
+				uploaded_at,
+				claimed
+			) VALUES (
+				$1,
+				$2,
+				'icons',
+				$3,
+				$4,
+				$5,
+				$6,
+				true
+			);`, f.Id, f.Hash, f.Width, f.Height, f.UploadedBy, f.UploadedAt); err != nil {
+				return err
+			}
+		}
+
+		// Migrate attachments
+		rows, err = db.Query(`SELECT
+			id,
+			hash,
+			filename,
+			width,
+			height,
+			uploader,
+			uploaded_at
+		FROM attachments;`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var f File
+			if err := rows.Scan(
+				&f.Id,
+				&f.Hash,
+				&f.Filename,
+				&f.Width,
+				&f.Height,
+				&f.UploadedBy,
+				&f.UploadedAt,
+			); err != nil {
+				return err
+			}
+
+			if _, err := db.Exec(`INSERT INTO files (
+				id,
+				hash,
+				bucket,
+				filename,
+				width,
+				height,
+				uploaded_by,
+				uploaded_at,
+				claimed
+			) VALUES (
+				$1,
+				$2,
+				'attachments',
+				$3,
+				$4,
+				$5,
+				$6,
+				$7,
+				true
+			);`, f.Id, f.Hash, f.Filename, f.Width, f.Height, f.UploadedBy, f.UploadedAt); err != nil {
+				return err
+			}
+		}
+
+		// Create indexes, drop icons/attachments tables, and add migration entry
+		for _, query := range []string{
+			// Create indexes
+			`CREATE INDEX IF NOT EXISTS files_hash ON files (hash);`,
+			`CREATE INDEX IF NOT EXISTS files_uploader ON files (uploaded_by);`,
+			`CREATE INDEX IF NOT EXISTS unclaimed_files ON files (
+				claimed,
+				uploaded_at
+			) WHERE claimed = false;`,
+
+			// Drop icons and attachments tables
+			`DROP TABLE icons;`,
+			`DROP TABLE attachments;`,
+
+			// Add migrations entry
+			`INSERT INTO migrations VALUES ('2024-05-12');`,
+		} {
+			if _, err := db.Exec(query); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
