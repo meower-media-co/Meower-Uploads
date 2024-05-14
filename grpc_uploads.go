@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/getsentry/sentry-go"
@@ -84,6 +88,54 @@ func (s grpcUploadsServer) DeleteFile(ctx context.Context, req *pb.DeleteFileReq
 		sentry.CaptureException(err)
 		return nil, err
 	}
+
+	// Purge from CF cache
+	go func() {
+		// Get token, zone ID, and URL
+		token := os.Getenv("CF_TOKEN")
+		zoneId := os.Getenv("CF_ZONE_ID")
+		url := os.Getenv("CF_URL")
+		if token == "" || zoneId == "" || url == "" {
+			return
+		}
+
+		// Create file URLs
+		fileUrls := []string{}
+		if f.Bucket == "icons" {
+			fileUrls = append(fileUrls, fmt.Sprint(url, "/icons/", f.Id))
+		} else if f.Bucket == "attachments" {
+			fileUrls = append(fileUrls, fmt.Sprint(url, "/attachments/", f.Id, "/", f.Filename))
+			fileUrls = append(fileUrls, fmt.Sprint(url, "/attachments/", f.Id, "/", f.Filename, "?preview"))
+			fileUrls = append(fileUrls, fmt.Sprint(url, "/attachments/", f.Id, "/", f.Filename, "?download"))
+			fileUrls = append(fileUrls, fmt.Sprint(url, "/attachments/", f.Id, "/", f.Filename, "?preview&download"))
+			fileUrls = append(fileUrls, fmt.Sprint(url, "/attachments/", f.Id, "/", f.Filename, "?download&preview"))
+		}
+
+		// Create body
+		jsonBody, err := json.Marshal(map[string][]string{
+			"files": fileUrls,
+		})
+		if err != nil {
+			sentry.CaptureException(err)
+			return
+		}
+
+		// Create request
+		apiUrl := fmt.Sprint("https://api.cloudflare.com/client/v4/zones/", zoneId, "/purge_cache")
+		req, err := http.NewRequest(http.MethodPost, apiUrl, bytes.NewReader(jsonBody))
+		if err != nil {
+			sentry.CaptureException(err)
+			return
+		}
+		req.Header.Add("Authorization", fmt.Sprint("Bearer ", token))
+
+		// Send request
+		_, err = http.DefaultClient.Do(req)
+		if err != nil {
+			sentry.CaptureException(err)
+			return
+		}
+	}()
 
 	return &emptypb.Empty{}, nil
 }
