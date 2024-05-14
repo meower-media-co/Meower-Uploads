@@ -91,6 +91,8 @@ func router(r chi.Router) {
 			sentry.CaptureException(err)
 			http.Error(w, "Failed to get object", http.StatusInternalServerError)
 			return
+		} else {
+			obj.Seek(0, 0)
 		}
 
 		// Set response headers
