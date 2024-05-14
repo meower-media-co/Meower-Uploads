@@ -122,6 +122,9 @@ func main() {
 	}).Handler)
 	r.Route("/", router)
 
+	// Send Sentry message
+	sentry.CaptureMessage("Starting uploads service")
+
 	// Serve HTTP router
 	port := os.Getenv("HTTP_PORT")
 	if port == "" {
@@ -129,4 +132,7 @@ func main() {
 	}
 	log.Println("Serving HTTP server on :" + port)
 	http.ListenAndServe(":"+port, r)
+
+	// Wait for Sentry events to flush
+	sentry.Flush(time.Second * 5)
 }
