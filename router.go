@@ -133,7 +133,7 @@ func router(r chi.Router) {
 			http.Error(w, "Failed to check token", http.StatusInternalServerError)
 			return
 		}
-		if !tokenDetails.Valid || tokenDetails.UserId != objInfo.UserMetadata["user-id"] {
+		if !tokenDetails.Valid || tokenDetails.UserId != objInfo.UserMetadata["User-Id"] {
 			http.Error(w, "Invalid or missing token", http.StatusUnauthorized)
 			return
 		}
