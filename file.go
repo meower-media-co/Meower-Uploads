@@ -185,18 +185,19 @@ func (f *File) GetPreviewObject() (*minio.Object, *minio.ObjectInfo, error) {
 		return obj, objInfo, nil // silent fail
 	}
 	startingWidth, startingHeight, _ := getMediaDimensions(imgBytes)
-	sentry.CaptureMessage(fmt.Sprint("before optimizing", f.Id, startingWidth, "x", startingHeight))
+	sentry.CaptureMessage(fmt.Sprint("before optimizing ", f.Hash, ": ", startingWidth, " x ", startingHeight))
 	optimizedImgBytes, newMime, err := optimizeImage(imgBytes, objInfo.ContentType, 1080)
 	if err != nil {
 		sentry.CaptureException(err)
 		return obj, objInfo, nil // silent fail
 	}
 	endingWidth, endingHeight, _ := getMediaDimensions(optimizedImgBytes)
-	sentry.CaptureMessage(fmt.Sprint("after optimizing", f.Id, endingWidth, "x", endingHeight))
+	sentry.CaptureMessage(fmt.Sprint("after optimizing ", f.Hash, ": ", startingWidth, " x ", startingHeight))
 
 	// Make sure that the optimized image is actually better (sometimes it's not)
 	if len(optimizedImgBytes) > len(imgBytes) {
 		optimizedImgBytes = imgBytes
+		sentry.CaptureMessage(fmt.Sprint("unable to optimize ", f.Hash, ": started with ", len(imgBytes), ", ended up with ", optimizedImgBytes))
 	}
 
 	// Cache preview
