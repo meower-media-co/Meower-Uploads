@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"io"
 	"time"
+	"fmt"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/minio/minio-go/v7"
@@ -183,11 +184,15 @@ func (f *File) GetPreviewObject() (*minio.Object, *minio.ObjectInfo, error) {
 		sentry.CaptureException(err)
 		return obj, objInfo, nil // silent fail
 	}
+	startingWidth, startingHeight, _ := getMediaDimensions(imgBytes)
+	sentry.CaptureMessage(fmt.Sprint("before optimizing", f.Id, startingWidth, "x", startingHeight))
 	optimizedImgBytes, newMime, err := optimizeImage(imgBytes, objInfo.ContentType, 1080)
 	if err != nil {
 		sentry.CaptureException(err)
 		return obj, objInfo, nil // silent fail
 	}
+	endingWidth, endingHeight, _ := getMediaDimensions(imgBytes)
+	sentry.CaptureMessage(fmt.Sprint("after optimizing", f.Id, endingWidth, "x", endingHeight))
 
 	// Make sure that the optimized image is actually better (sometimes it's not)
 	if len(optimizedImgBytes) > len(imgBytes) {
