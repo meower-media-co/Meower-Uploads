@@ -197,7 +197,7 @@ func (f *File) GetPreviewObject() (*minio.Object, *minio.ObjectInfo, error) {
 	// Make sure that the optimized image is actually better (sometimes it's not)
 	if len(optimizedImgBytes) > len(imgBytes) {
 		optimizedImgBytes = imgBytes
-		sentry.CaptureMessage(fmt.Sprint("unable to optimize ", f.Hash, ": started with ", len(imgBytes), ", ended up with ", optimizedImgBytes))
+		sentry.CaptureMessage(fmt.Sprint("unable to optimize ", f.Hash, ": started with ", len(imgBytes), ", ended up with ", len(optimizedImgBytes)))
 	}
 
 	// Cache preview
