@@ -192,7 +192,7 @@ func (f *File) GetPreviewObject() (*minio.Object, *minio.ObjectInfo, error) {
 		return obj, objInfo, nil // silent fail
 	}
 	endingWidth, endingHeight, _ := getMediaDimensions(optimizedImgBytes)
-	sentry.CaptureMessage(fmt.Sprint("after optimizing ", f.Hash, ": ", startingWidth, " x ", startingHeight))
+	sentry.CaptureMessage(fmt.Sprint("after optimizing ", f.Hash, ": ", endingWidth, " x ", endingHeight))
 
 	// Make sure that the optimized image is actually better (sometimes it's not)
 	if len(optimizedImgBytes) > len(imgBytes) {
