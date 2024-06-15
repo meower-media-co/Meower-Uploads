@@ -291,7 +291,7 @@ func runMigrations() error {
 		// Add upload_region column
 		query = `ALTER TABLE files
 		ADD upload_region VARCHAR(255);`
-		if _, err := db.Exec(query, s3RegionOrder[0]); err != nil {
+		if _, err := db.Exec(query); err != nil {
 			return err
 		}
 
