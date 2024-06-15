@@ -283,7 +283,7 @@ func runMigrations() error {
 	if latestMigration < "2024-06-15" {
 		// Add mime column
 		query := `ALTER TABLE files
-		ADD upload_region VARCHAR(255);`
+		ADD mime VARCHAR(255);`
 		if _, err := db.Exec(query); err != nil {
 			return err
 		}
