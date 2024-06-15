@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"time"
 
@@ -153,6 +154,8 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 		return f, err
 	}
 
+	sentry.CaptureMessage(fmt.Sprintf("Uploaded file %s with hash %s to %s region", f.Id, f.Hash, f.UploadRegion))
+
 	return f, nil
 }
 
@@ -167,6 +170,7 @@ func (f *File) GetObject() (*minio.Object, *minio.ObjectInfo, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+		sentry.CaptureMessage(fmt.Sprintf("Got file %s locally within region %s", f.Id, s3RegionOrder[0]))
 		return obj, &objInfo, nil
 	}
 
@@ -177,6 +181,7 @@ func (f *File) GetObject() (*minio.Object, *minio.ObjectInfo, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+		sentry.CaptureMessage(fmt.Sprintf("Got file %s remotely from region %s", f.Id, f.UploadRegion))
 		return obj, &objInfo, nil
 	}
 
