@@ -43,7 +43,7 @@ func router(r chi.Router) {
 		}
 
 		// Set response headers
-		w.Header().Set("Content-Type", objInfo.ContentType)
+		w.Header().Set("Content-Type", f.Mime)
 		w.Header().Set("Content-Length", strconv.FormatInt(objInfo.Size, 10))
 		w.Header().Set("ETag", f.Id)
 		w.Header().Set("Cache-Control", "pbulic, max-age=31536000") // 1 year cache (files should never change)
@@ -96,7 +96,7 @@ func router(r chi.Router) {
 		}
 
 		// Set response headers
-		w.Header().Set("Content-Type", objInfo.ContentType)
+		w.Header().Set("Content-Type", f.Mime)
 		w.Header().Set("Content-Length", strconv.FormatInt(objInfo.Size, 10))
 		w.Header().Set("ETag", f.Id)
 		w.Header().Set("Cache-Control", "pbulic, max-age=31536000") // 1 year cache (files should never change)
@@ -117,7 +117,7 @@ func router(r chi.Router) {
 
 	r.Get("/data-exports/{id}", func(w http.ResponseWriter, r *http.Request) {
 		// Get object info
-		objInfo, err := s3.StatObject(ctx, "data-exports", chi.URLParam(r, "id"), minio.StatObjectOptions{})
+		objInfo, err := s3Clients[s3RegionOrder[0]].StatObject(ctx, "data-exports", chi.URLParam(r, "id"), minio.StatObjectOptions{})
 		if err != nil {
 			http.Error(w, "Not found", http.StatusNotFound)
 			return
@@ -139,7 +139,7 @@ func router(r chi.Router) {
 		}
 
 		// Get object
-		obj, err := s3.GetObject(ctx, "data-exports", chi.URLParam(r, "id"), minio.GetObjectOptions{})
+		obj, err := s3Clients[s3RegionOrder[0]].GetObject(ctx, "data-exports", chi.URLParam(r, "id"), minio.GetObjectOptions{})
 		if err != nil {
 			sentry.CaptureException(err)
 			http.Error(w, "Failed to get object", http.StatusInternalServerError)

@@ -118,8 +118,8 @@ func runMigrations() error {
 			"attachment-previews",
 			"data-exports",
 		} {
-			if exists, _ := s3.BucketExists(ctx, bucketName); !exists {
-				if err := s3.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{}); err != nil {
+			if exists, _ := s3Clients[s3RegionOrder[0]].BucketExists(ctx, bucketName); !exists {
+				if err := s3Clients[s3RegionOrder[0]].MakeBucket(ctx, bucketName, minio.MakeBucketOptions{}); err != nil {
 					return err
 				}
 			}
@@ -136,8 +136,8 @@ func runMigrations() error {
 				},
 			},
 		}
-		s3.SetBucketLifecycle(ctx, "attachment-previews", config)
-		s3.SetBucketLifecycle(ctx, "data-exports", config)
+		s3Clients[s3RegionOrder[0]].SetBucketLifecycle(ctx, "attachment-previews", config)
+		s3Clients[s3RegionOrder[0]].SetBucketLifecycle(ctx, "data-exports", config)
 
 		// Create files table
 		if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS files (
@@ -276,6 +276,42 @@ func runMigrations() error {
 			if _, err := db.Exec(query); err != nil {
 				return err
 			}
+		}
+	}
+
+	// Cross-region support (2024-06-15)
+	if latestMigration < "2024-06-15" {
+		// Add mime and upload_region columns
+		query := `ALTER TABLE files
+		ADD mime VARCHAR(255)
+		ADD upload_region VARCHAR(255);`
+		if _, err := db.Exec(query); err != nil {
+			return err
+		}
+
+		// Set upload_region
+		query = "UPDATE files SET upload_region=$1;"
+		if _, err := db.Exec(query, s3RegionOrder[0]); err != nil {
+			return err
+		}
+
+		// Set mime
+		query = "UPDATE files SET mime=$1 WHERE hash=$2 AND bucket=$3;"
+		for _, bucket := range []string{
+			"icons",
+			"attachments",
+		} {
+			for object := range s3Clients[s3RegionOrder[0]].ListObjects(ctx, bucket, minio.ListObjectsOptions{}) {
+				if _, err := db.Exec(query, object.ContentType, object.Key, bucket); err != nil {
+					return err
+				}
+			}
+		}
+
+		// Add migrations entry
+		query = "INSERT INTO migrations VALUES ('2024-06-15');"
+		if _, err := db.Exec(query); err != nil {
+			return err
 		}
 	}
 

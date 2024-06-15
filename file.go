@@ -12,15 +12,17 @@ import (
 )
 
 type File struct {
-	Id         string `json:"id"`
-	Hash       string `json:"hash"`
-	Bucket     string `json:"bucket"`
-	Filename   string `json:"filename,omitempty"`
-	Width      int32  `json:"width,omitempty"`
-	Height     int32  `json:"height,omitempty"`
-	UploadedBy string `json:"uploaded_by"`
-	UploadedAt int64  `json:"uploaded_at"`
-	Claimed    bool   `json:"claimed"`
+	Id           string `json:"id"`
+	Hash         string `json:"hash"`
+	Bucket       string `json:"bucket"`
+	Mime         string `json:"mime"`
+	Filename     string `json:"filename,omitempty"`
+	Width        int32  `json:"width,omitempty"`
+	Height       int32  `json:"height,omitempty"`
+	UploadRegion string `json:"upload_region"`
+	UploadedBy   string `json:"uploaded_by"`
+	UploadedAt   int64  `json:"uploaded_at"`
+	Claimed      bool   `json:"claimed"`
 }
 
 func GetFile(id string) (File, error) {
@@ -29,9 +31,11 @@ func GetFile(id string) (File, error) {
 		id,
 		hash,
 		bucket,
+		mime,
 		filename,
 		width,
 		height,
+		upload_region,
 		uploaded_by,
 		uploaded_at,
 		claimed
@@ -39,9 +43,11 @@ func GetFile(id string) (File, error) {
 		&f.Id,
 		&f.Hash,
 		&f.Bucket,
+		&f.Mime,
 		&f.Filename,
 		&f.Width,
 		&f.Height,
+		&f.UploadRegion,
 		&f.UploadedBy,
 		&f.UploadedAt,
 		&f.Claimed,
@@ -80,12 +86,14 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 
 	// Create file details
 	f = File{
-		Id:         id,
-		Hash:       hashHex,
-		Bucket:     bucket,
-		Filename:   cleanFilename(filename),
-		UploadedBy: uploadedBy,
-		UploadedAt: time.Now().Unix(),
+		Id:           id,
+		Hash:         hashHex,
+		Bucket:       bucket,
+		Mime:         mime,
+		Filename:     cleanFilename(filename),
+		UploadRegion: s3RegionOrder[0],
+		UploadedBy:   uploadedBy,
+		UploadedAt:   time.Now().Unix(),
 	}
 
 	// Get media dimensions
@@ -94,7 +102,7 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 	f.Height = int32(height)
 
 	// Save file
-	if _, err := s3.StatObject(ctx, f.Bucket, f.Hash, minio.GetObjectOptions{}); err != nil {
+	if _, err := s3Clients[s3RegionOrder[0]].StatObject(ctx, f.Bucket, f.Hash, minio.GetObjectOptions{}); err != nil {
 		// Optimize image if it's an icon
 		if bucket == "icons" {
 			fileBytes, mime, err = optimizeImage(fileBytes, mime, 256)
@@ -104,7 +112,7 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 		}
 
 		// Put object
-		if _, err = s3.PutObject(
+		if _, err = s3Clients[s3RegionOrder[0]].PutObject(
 			ctx,
 			f.Bucket,
 			f.Hash,
@@ -126,6 +134,7 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 		filename,
 		width,
 		height,
+		upload_region,
 		uploaded_by,
 		uploaded_at
 	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -135,6 +144,7 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 		f.Filename,
 		f.Width,
 		f.Height,
+		f.UploadRegion,
 		f.UploadedBy,
 		f.UploadedAt,
 	); err != nil {
@@ -145,22 +155,37 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 }
 
 func (f *File) GetObject() (*minio.Object, *minio.ObjectInfo, error) {
-	objInfo, err := s3.StatObject(ctx, f.Bucket, f.Hash, minio.StatObjectOptions{})
-	if err != nil {
-		return nil, nil, err
+	var objInfo minio.ObjectInfo
+	var err error
+
+	// Attempt getting object locally
+	objInfo, err = s3Clients[s3RegionOrder[0]].StatObject(ctx, f.Bucket, f.Hash, minio.StatObjectOptions{})
+	if err == nil {
+		obj, err := s3Clients[s3RegionOrder[0]].GetObject(ctx, f.Bucket, f.Hash, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, nil, err
+		}
+		return obj, &objInfo, nil
 	}
-	obj, err := s3.GetObject(ctx, f.Bucket, f.Hash, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, nil, err
+
+	// Otherwise, go to the upload region
+	objInfo, err = s3Clients[f.UploadRegion].StatObject(ctx, f.Bucket, f.Hash, minio.StatObjectOptions{})
+	if err == nil {
+		obj, err := s3Clients[f.UploadRegion].GetObject(ctx, f.Bucket, f.Hash, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, nil, err
+		}
+		return obj, &objInfo, nil
 	}
-	return obj, &objInfo, nil
+
+	return nil, nil, err
 }
 
 func (f *File) GetPreviewObject() (*minio.Object, *minio.ObjectInfo, error) {
 	// Get cached preview
-	previewObjInfo, err := s3.StatObject(ctx, "attachment-previews", f.Hash, minio.StatObjectOptions{})
+	previewObjInfo, err := s3Clients[s3RegionOrder[0]].StatObject(ctx, "attachment-previews", f.Hash, minio.StatObjectOptions{})
 	if err == nil {
-		previewObj, err := s3.GetObject(ctx, "attachment-previews", f.Hash, minio.GetObjectOptions{})
+		previewObj, err := s3Clients[s3RegionOrder[0]].GetObject(ctx, "attachment-previews", f.Hash, minio.GetObjectOptions{})
 		return previewObj, &previewObjInfo, err
 	} else {
 		err = nil
@@ -195,7 +220,7 @@ func (f *File) GetPreviewObject() (*minio.Object, *minio.ObjectInfo, error) {
 	}
 
 	// Cache preview
-	_, err = s3.PutObject(
+	_, err = s3Clients[s3RegionOrder[0]].PutObject(
 		ctx,
 		"attachment-previews",
 		f.Hash,
@@ -237,13 +262,11 @@ func (f *File) Delete() error {
 		return err
 	}
 	if !stillReferenced {
-		err = s3.RemoveObject(ctx, f.Bucket, f.Hash, minio.RemoveObjectOptions{})
-		if err != nil {
-			return err
-		}
-
-		if f.Bucket == "attachments" {
-			s3.RemoveObject(ctx, "attachment-previews", f.Hash, minio.RemoveObjectOptions{})
+		for _, s3Client := range s3Clients {
+			go s3Client.RemoveObject(ctx, f.Bucket, f.Hash, minio.RemoveObjectOptions{})
+			if f.Bucket == "attachments" {
+				go s3Client.RemoveObject(ctx, "attachment-previews", f.Hash, minio.RemoveObjectOptions{})
+			}
 		}
 	}
 

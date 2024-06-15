@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log"
 	"net"
 	"net/http"
@@ -29,7 +30,8 @@ import (
 var ctx context.Context = context.Background()
 var db *sql.DB
 var rdb *redis.Client
-var s3 *minio.Client
+var s3Clients = make(map[string]*minio.Client)
+var s3RegionOrder = []string{}
 
 var grpcAuthClient grpcAuth.AuthClient
 
@@ -64,33 +66,55 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	// Connect to MinIO
-	s3, err = minio.New(os.Getenv("MINIO_ENDPOINT"), &minio.Options{
-		Creds:  credentials.NewStaticV4(os.Getenv("MINIO_ACCESS_KEY"), os.Getenv("MINIO_SECRET_KEY"), ""),
-		Secure: os.Getenv("MINIO_SSL") == "1",
-	})
+	// Connect to MinIO regions
+	var s3Endpoints [][2]string
+	err = json.Unmarshal([]byte(os.Getenv("MINIO_REGIONS")), s3Endpoints)
 	if err != nil {
 		log.Fatalln(err)
 	}
-
-	// Run migrations
-	if err := runMigrations(); err != nil {
-		log.Fatalln(err)
-	}
-
-	// Start gRPC Uploads service
-	go func() {
-		lis, err := net.Listen("tcp", os.Getenv("GRPC_UPLOADS_ADDRESS"))
+	for _, region := range s3Endpoints {
+		name := region[0]
+		endpoint := region[1]
+		s3Clients[name], err = minio.New(endpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(os.Getenv("MINIO_ACCESS_KEY"), os.Getenv("MINIO_SECRET_KEY"), ""),
+			Secure: os.Getenv("MINIO_SSL") == "1",
+		})
 		if err != nil {
 			log.Fatalln(err)
 		}
-		s := grpc.NewServer()
-		reflection.Register(s)
-		grpcUploads.RegisterUploadsServer(s, grpcUploadsServer{})
-		if err := s.Serve(lis); err != nil {
+		s3RegionOrder = append(s3RegionOrder, name)
+	}
+
+	if os.Getenv("PRIMARY_NODE") == "1" {
+		// Run migrations
+		if err := runMigrations(); err != nil {
 			log.Fatalln(err)
 		}
-	}()
+
+		// Files cleanup
+		go func() {
+			for {
+				time.Sleep(time.Minute)
+				if err := cleanupFiles(); err != nil {
+					sentry.CaptureException(err)
+				}
+			}
+		}()
+
+		// Start gRPC Uploads service
+		go func() {
+			lis, err := net.Listen("tcp", os.Getenv("GRPC_UPLOADS_ADDRESS"))
+			if err != nil {
+				log.Fatalln(err)
+			}
+			s := grpc.NewServer()
+			reflection.Register(s)
+			grpcUploads.RegisterUploadsServer(s, grpcUploadsServer{})
+			if err := s.Serve(lis); err != nil {
+				log.Fatalln(err)
+			}
+		}()
+	}
 
 	// Connect to gRPC Auth service
 	var opts []grpc.DialOption
@@ -101,16 +125,6 @@ func main() {
 	}
 	defer grpcAuthConn.Close()
 	grpcAuthClient = grpcAuth.NewAuthClient(grpcAuthConn)
-
-	// Files cleanup
-	go func() {
-		for {
-			time.Sleep(time.Minute)
-			if err := cleanupFiles(); err != nil {
-				sentry.CaptureException(err)
-			}
-		}
-	}()
 
 	// Create HTTP router
 	r := chi.NewRouter()
