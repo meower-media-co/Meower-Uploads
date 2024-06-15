@@ -68,7 +68,7 @@ func main() {
 
 	// Connect to MinIO regions
 	var s3Endpoints [][2]string
-	err = json.Unmarshal([]byte(os.Getenv("MINIO_REGIONS")), s3Endpoints)
+	err = json.Unmarshal([]byte(os.Getenv("MINIO_REGIONS")), &s3Endpoints)
 	if err != nil {
 		log.Fatalln(err)
 	}
