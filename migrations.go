@@ -290,8 +290,13 @@ func runMigrations() error {
 
 		// Add upload_region column
 		query = `ALTER TABLE files
-		ADD upload_region VARCHAR(255);
-		UPDATE files SET upload_region=$1;`
+		ADD upload_region VARCHAR(255);`
+		if _, err := db.Exec(query, s3RegionOrder[0]); err != nil {
+			return err
+		}
+
+		// Set upload_region
+		query = `UPDATE files SET upload_region=$1;`
 		if _, err := db.Exec(query, s3RegionOrder[0]); err != nil {
 			return err
 		}
