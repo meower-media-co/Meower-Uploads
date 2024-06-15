@@ -281,16 +281,17 @@ func runMigrations() error {
 
 	// Cross-region support (2024-06-15)
 	if latestMigration < "2024-06-15" {
-		// Add mime and upload_region columns
+		// Add mime column
 		query := `ALTER TABLE files
-		ADD mime VARCHAR(255)
 		ADD upload_region VARCHAR(255);`
 		if _, err := db.Exec(query); err != nil {
 			return err
 		}
 
-		// Set upload_region
-		query = "UPDATE files SET upload_region=$1;"
+		// Add upload_region column
+		query = `ALTER TABLE files
+		ADD upload_region VARCHAR(255);
+		UPDATE files SET upload_region=$1;`
 		if _, err := db.Exec(query, s3RegionOrder[0]); err != nil {
 			return err
 		}
