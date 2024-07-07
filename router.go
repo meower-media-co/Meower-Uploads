@@ -190,8 +190,8 @@ func router(r chi.Router) {
 
 		// Make sure file doesn't exceeed maximum size
 		if header.Size > map[string]int64{
-			"icons":       (5 << 20),
-			"attachments": (25 << 20),
+			"icons":       (strconv.ParseInt(os.Getenv("MAX_ICON_SIZE_MIB"), 10, 32) << 20),
+			"attachments": (strconv.ParseInt(os.Getenv("MAX_ATTACHMENT_SIZE_MIB"), 10, 32) << 20),
 		}[chi.URLParam(r, "bucket")] {
 			http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
 			return
