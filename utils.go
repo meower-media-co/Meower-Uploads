@@ -68,20 +68,24 @@ func optimizeImage(imageBytes []byte, mime string, maxWidth int) ([]byte, string
 	}
 	defer lilliputDecoder.Close()
 
-	// Get lilliput header
-	lilliputHeader, err := lilliputDecoder.Header()
+	// Original image dimensions
+	originalWidth, originalHeight, err := getMediaDimensions(lilliputDecoder)
 	if err != nil {
 		return nil, "", err
 	}
 
+	// Calculate aspect ratio of the original image
+	aspectRatio := float64(originalWidth) / float64(originalHeight)
+
+	// Calculate new dimensions based on maxWidth constraint
+	newWidth := maxWidth
+	newHeight := int(float64(maxWidth) / aspectRatio)
+
 	// Create lilliput options
-	if lilliputHeader.Width() < maxWidth {
-		maxWidth = lilliputHeader.Width()
-	}
 	lilliputOpts := lilliput.ImageOptions{
 		FileType:     fileExt,
-		Width:        maxWidth,
-		Height:       (maxWidth * lilliputHeader.Height()) / lilliputHeader.Width(),
+		Width:        newWidth,
+		Height:       newHeight,
 		ResizeMethod: lilliput.ImageOpsResize,
 	}
 
@@ -99,14 +103,7 @@ func optimizeImage(imageBytes []byte, mime string, maxWidth int) ([]byte, string
 }
 
 // returns width x height
-func getMediaDimensions(fileBytes []byte) (int, int, error) {
-	// Get lilliput decoder
-	lilliputDecoder, err := lilliput.NewDecoder(fileBytes)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer lilliputDecoder.Close()
-
+func getMediaDimensions(lilliputDecoder lilliput.Decoder) (int, int, error) {
 	// Get lilliput header
 	lilliputHeader, err := lilliputDecoder.Header()
 	if err != nil {
@@ -114,7 +111,14 @@ func getMediaDimensions(fileBytes []byte) (int, int, error) {
 	}
 
 	// Return width x height
-	return lilliputHeader.Width(), lilliputHeader.Height(), nil
+	// Anything above orientation 4, we swap width and height.
+	// Since anything above orientation 4 does rotations which swaps the width
+	// and height for some reason.
+	if lilliputHeader.Orientation() > 4 {
+		return lilliputHeader.Height(), lilliputHeader.Width(), nil
+	} else {
+		return lilliputHeader.Width(), lilliputHeader.Height(), nil
+	}
 }
 
 // Delete unclaimed files that are more than 10 minutes old

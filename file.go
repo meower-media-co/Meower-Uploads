@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/discord/lilliput"
 	"github.com/getsentry/sentry-go"
 	"github.com/minio/minio-go/v7"
 )
@@ -18,8 +19,8 @@ type File struct {
 	Bucket       string `json:"bucket"`
 	Mime         string `json:"mime"`
 	Filename     string `json:"filename,omitempty"`
-	Width        int32  `json:"width,omitempty"`
-	Height       int32  `json:"height,omitempty"`
+	Width        int    `json:"width,omitempty"`
+	Height       int    `json:"height,omitempty"`
 	UploadRegion string `json:"upload_region"`
 	UploadedBy   string `json:"uploaded_by"`
 	UploadedAt   int64  `json:"uploaded_at"`
@@ -98,9 +99,10 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 	}
 
 	// Get media dimensions
-	width, height, _ := getMediaDimensions(fileBytes)
-	f.Width = int32(width)
-	f.Height = int32(height)
+	lilliputDecoder, err := lilliput.NewDecoder(fileBytes)
+	if err == nil {
+		f.Width, f.Height, _ = getMediaDimensions(lilliputDecoder)
+	}
 
 	// Save file
 	if _, err := s3Clients[s3RegionOrder[0]].StatObject(ctx, f.Bucket, f.Hash, minio.GetObjectOptions{}); err != nil {
@@ -126,6 +128,9 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 			return f, err
 		}
 	}
+
+	// Start loading preview
+	go f.GetPreviewObject()
 
 	// Create database row
 	if _, err = db.Exec(`INSERT INTO files (
@@ -215,7 +220,7 @@ func (f *File) GetPreviewObject() (*minio.Object, *minio.ObjectInfo, error) {
 		sentry.CaptureException(err)
 		return obj, objInfo, nil // silent fail
 	}
-	optimizedImgBytes, newMime, err := optimizeImage(imgBytes, objInfo.ContentType, 1080)
+	optimizedImgBytes, newMime, err := optimizeImage(imgBytes, objInfo.ContentType, 720)
 	if err != nil {
 		sentry.CaptureException(err)
 		return obj, objInfo, nil // silent fail
