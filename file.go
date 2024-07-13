@@ -106,9 +106,19 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 
 	// Save file
 	if _, err := s3Clients[s3RegionOrder[0]].StatObject(ctx, f.Bucket, f.Hash, minio.GetObjectOptions{}); err != nil {
-		// Optimize image if it's an icon
+		// Optimization
 		if bucket == "icons" {
 			fileBytes, mime, err = optimizeImage(fileBytes, mime, 256)
+			if err != nil {
+				return f, err
+			}
+		} else if bucket == "emojis" {
+			fileBytes, mime, err = optimizeImage(fileBytes, mime, 128)
+			if err != nil {
+				return f, err
+			}
+		} else if bucket == "stickers" {
+			fileBytes, mime, err = optimizeImage(fileBytes, mime, 384)
 			if err != nil {
 				return f, err
 			}

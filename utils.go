@@ -49,7 +49,7 @@ func cleanFilename(filename string) string {
 	return re.ReplaceAllString(filename, "_")
 }
 
-func optimizeImage(imageBytes []byte, mime string, maxWidth int) ([]byte, string, error) {
+func optimizeImage(imageBytes []byte, mime string, maxSize int) ([]byte, string, error) {
 	// Get file extension
 	fileExt := map[string]string{
 		"image/png":  ".webp",
@@ -77,9 +77,16 @@ func optimizeImage(imageBytes []byte, mime string, maxWidth int) ([]byte, string
 	// Calculate aspect ratio of the original image
 	aspectRatio := float64(originalWidth) / float64(originalHeight)
 
-	// Calculate new dimensions based on maxWidth constraint
-	newWidth := maxWidth
-	newHeight := int(float64(maxWidth) / aspectRatio)
+	// Calculate new dimensions based on max width constraint
+	newWidth := maxSize
+	newHeight := int(float64(maxSize) / aspectRatio)
+
+	// Shrink height if still too high
+	if newHeight > maxSize {
+		aspectRatio = float64(newHeight) / float64(newWidth)
+		newHeight = maxSize
+		newWidth = int(float64(newWidth) / aspectRatio)
+	}
 
 	// Create lilliput options
 	lilliputOpts := lilliput.ImageOptions{

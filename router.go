@@ -17,10 +17,10 @@ import (
 )
 
 func router(r chi.Router) {
-	r.Get("/icons/{id}", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/{bucket:icons|emojis|stickers}/{id}", func(w http.ResponseWriter, r *http.Request) {
 		// Get file
 		f, err := GetFile(chi.URLParam(r, "id"))
-		if err != nil || f.Bucket != "icons" {
+		if err != nil || f.Bucket != chi.URLParam(r, "bucket") {
 			if err != nil && err != sql.ErrNoRows {
 				sentry.CaptureException(err)
 			}
@@ -190,9 +190,13 @@ func router(r chi.Router) {
 
 		// Make sure file doesn't exceeed maximum size
 		maxIconSizeMib, _ := strconv.ParseInt(os.Getenv("MAX_ICON_SIZE_MIB"), 10, 32)
+		maxEmojiSizeMib, _ := strconv.ParseInt(os.Getenv("MAX_EMOJI_SIZE_MIB"), 10, 32)
+		maxStickerSizeMib, _ := strconv.ParseInt(os.Getenv("MAX_STICKER_SIZE_MIB"), 10, 32)
 		maxAttachmentSizeMib, _ := strconv.ParseInt(os.Getenv("MAX_ATTACHMENT_SIZE_MIB"), 10, 32)
 		if header.Size > map[string]int64{
 			"icons":       (maxIconSizeMib << 20),
+			"emojis":      (maxEmojiSizeMib << 20),
+			"stickers":    (maxStickerSizeMib << 20),
 			"attachments": (maxAttachmentSizeMib << 20),
 		}[chi.URLParam(r, "bucket")] {
 			http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
