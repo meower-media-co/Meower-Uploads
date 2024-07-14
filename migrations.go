@@ -321,5 +321,24 @@ func runMigrations() error {
 		}
 	}
 
+	// Emojis & stickers (2024-07-14)
+	if latestMigration < "2024-07-14" {
+		// Create new buckets
+		for _, bucketName := range []string{
+			"emojis",
+			"stickers",
+		} {
+			if err := s3Clients[s3RegionOrder[0]].MakeBucket(ctx, bucketName, minio.MakeBucketOptions{}); err != nil {
+				return err
+			}
+		}
+
+		// Add migrations entry
+		query := "INSERT INTO migrations VALUES ('2024-07-14');"
+		if _, err := db.Exec(query); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
