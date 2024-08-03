@@ -66,6 +66,9 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 	if _, err = h.Write(fileBytes); err != nil {
 		return f, err
 	}
+	if _, err = h.Write([]byte(mime)); err != nil {
+		return f, err
+	}
 	hashHex := hex.EncodeToString(h.Sum(nil))
 
 	// Check block status
@@ -220,7 +223,7 @@ func (f *File) GetPreviewObject() (*minio.Object, *minio.ObjectInfo, error) {
 	}
 
 	// Make sure the file is compatible
-	if f.Bucket != "attachments" || !SupportedImages[objInfo.ContentType] {
+	if f.Bucket != "attachments" || !SupportedImages[objInfo.ContentType] || objInfo.Size > 10<<20 {
 		return obj, objInfo, nil // silent fail
 	}
 

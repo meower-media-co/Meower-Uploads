@@ -134,7 +134,10 @@ func main() {
 		AllowedHeaders:   []string{"*"},
 		AllowCredentials: true,
 	}).Handler)
-	r.Route("/", router)
+	r.Post("/{bucket:icons|emojis|stickers|attachments}", uploadFile)
+	r.Get("/{bucket:icons|emojis|stickers|attachments}/{id}", downloadFile)
+	r.Get("/{bucket:icons|emojis|stickers|attachments}/{id}/*", downloadFile)
+	r.Get("/data-exports/{id}", downloadDataExport)
 
 	// Send Sentry message
 	sentry.CaptureMessage("Starting uploads service")

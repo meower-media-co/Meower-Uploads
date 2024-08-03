@@ -101,7 +101,8 @@ func optimizeImage(imageBytes []byte, mime string, maxSize int) ([]byte, string,
 	defer lilliputOps.Close()
 
 	// Transform image
-	newImageBytes, err := lilliputOps.Transform(lilliputDecoder, &lilliputOpts, make([]byte, len(imageBytes)*2))
+	// Allow images up to 10 MiB to be resized
+	newImageBytes, err := lilliputOps.Transform(lilliputDecoder, &lilliputOpts, make([]byte, 0, 10<<20))
 	newMime := map[string]string{
 		".webp": "image/webp",
 		".gif":  "image/gif",
