@@ -1,4 +1,4 @@
-FROM golang
+FROM --platform=$BUILDPLATFORM golang
 WORKDIR /app
 COPY . .
 RUN go mod download
