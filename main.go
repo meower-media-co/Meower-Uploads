@@ -10,6 +10,8 @@ import (
 	"os"
 	"time"
 
+	"crypto/tls"
+
 	"github.com/getsentry/sentry-go"
 	_ "github.com/glebarez/go-sqlite"
 	"github.com/go-chi/chi/v5"
@@ -82,8 +84,8 @@ func main() {
 		if os.Getenv("MINIO_SECURE") != "1" {
 			opts.Secure = false
 			opts.Transport = &http.Transport{
-                TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-            }
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			}
 		}
 		s3Clients[name], err = minio.New(endpoint, opts)
 		if err != nil {
