@@ -75,10 +75,17 @@ func main() {
 	for _, region := range s3Endpoints {
 		name := region[0]
 		endpoint := region[1]
-		s3Clients[name], err = minio.New(endpoint, &minio.Options{
+		opts := &minio.Options{
 			Creds:  credentials.NewStaticV4(os.Getenv("MINIO_ACCESS_KEY"), os.Getenv("MINIO_SECRET_KEY"), ""),
-			Secure: os.Getenv("MINIO_SSL") == "1",
-		})
+			Secure: true,
+		}
+		if os.Getenv("MINIO_SECURE") != "1" {
+			opts.Secure = false
+			opts.Transport = &http.Transport{
+                TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+            }
+		}
+		s3Clients[name], err = minio.New(endpoint, opts)
 		if err != nil {
 			log.Fatalln(err)
 		}
