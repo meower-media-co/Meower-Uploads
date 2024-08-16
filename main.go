@@ -83,10 +83,10 @@ func main() {
 		}
 		if os.Getenv("MINIO_SECURE") != "1" {
 			opts.Secure = false
-			if os.Getenv("MINIO_NO_TLS_VERIFY") == "1" {
-				opts.Transport = &http.Transport{
-					TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-				}
+		}
+		if os.Getenv("MINIO_NO_TLS_VERIFY") == "1" {
+			opts.Transport = &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 			}
 		}
 		s3Clients[name], err = minio.New(endpoint, opts)
