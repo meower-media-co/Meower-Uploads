@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"time"
 
 	"github.com/discord/lilliput"
@@ -138,6 +139,7 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 				ContentType: mime,
 			},
 		); err != nil {
+			log.Println(err)
 			return f, err
 		}
 	}

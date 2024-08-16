@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"crypto/tls"
+	"crypto/x509"
 
 	"github.com/getsentry/sentry-go"
 	_ "github.com/glebarez/go-sqlite"
@@ -79,14 +80,19 @@ func main() {
 		endpoint := region[1]
 		opts := &minio.Options{
 			Creds:  credentials.NewStaticV4(os.Getenv("MINIO_ACCESS_KEY"), os.Getenv("MINIO_SECRET_KEY"), ""),
-			Secure: true,
+			Secure: os.Getenv("MINIO_SECURE") == "1",
 		}
-		if os.Getenv("MINIO_SECURE") != "1" {
-			opts.Secure = false
-		}
-		if os.Getenv("MINIO_NO_TLS_VERIFY") == "1" {
+		if os.Getenv("MINIO_CA_CERT") != "" {
+			caCert, err := os.ReadFile(os.Getenv("MINIO_CA_CERT"))
+			if err != nil {
+				log.Fatalln(err)
+			}
+			caCertPool := x509.NewCertPool()
+			caCertPool.AppendCertsFromPEM(caCert)
 			opts.Transport = &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				TLSClientConfig: &tls.Config{
+					RootCAs: caCertPool,
+				},
 			}
 		}
 		s3Clients[name], err = minio.New(endpoint, opts)
