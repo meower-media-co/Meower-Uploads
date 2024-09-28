@@ -11,23 +11,14 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/go-chi/chi/v5"
-	grpcAuth "github.com/meower-media-co/Meower-Uploads/grpc_auth"
 	"github.com/minio/minio-go/v7"
-	"google.golang.org/grpc/metadata"
 )
 
 func uploadFile(w http.ResponseWriter, r *http.Request) {
-	// Get token details
-	ctx := metadata.AppendToOutgoingContext(ctx, "x-token", os.Getenv("GRPC_AUTH_TOKEN"))
-	tokenDetails, err := grpcAuthClient.CheckToken(ctx, &grpcAuth.CheckTokenReq{
-		Token: r.Header.Get("Authorization"),
-	})
+	// Get authed user
+	user, err := getUserByToken(r.Header.Get("Authorization"))
 	if err != nil {
 		sentry.CaptureException(err)
-		http.Error(w, "Failed to check token", http.StatusInternalServerError)
-		return
-	}
-	if !tokenDetails.Valid {
 		http.Error(w, "Invalid or missing token", http.StatusUnauthorized)
 		return
 	}
@@ -67,10 +58,14 @@ func uploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create file
-	f, err := CreateFile(chi.URLParam(r, "bucket"), fileBytes, header.Filename, header.Header.Get("Content-Type"), tokenDetails.UserId)
+	f, err := CreateFile(chi.URLParam(r, "bucket"), fileBytes, header.Filename, header.Header.Get("Content-Type"), user.Username)
 	if err != nil {
-		sentry.CaptureException(err)
-		http.Error(w, "Failed to create file", http.StatusInternalServerError)
+		if err == ErrFileBlocked {
+			http.Error(w, "File blocked", http.StatusForbidden)
+		} else {
+			sentry.CaptureException(err)
+			http.Error(w, "Failed to create file", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -152,16 +147,9 @@ func downloadDataExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get & check token details
-	ctx := metadata.AppendToOutgoingContext(ctx, "x-token", os.Getenv("GRPC_AUTH_TOKEN"))
-	tokenDetails, err := grpcAuthClient.CheckToken(ctx, &grpcAuth.CheckTokenReq{
-		Token: r.URL.Query().Get("t"),
-	})
-	if err != nil {
+	user, err := getUserByToken(r.URL.Query().Get("t"))
+	if err != nil || user.Username != objInfo.UserMetadata["User-Id"] {
 		sentry.CaptureException(err)
-		http.Error(w, "Failed to check token", http.StatusInternalServerError)
-		return
-	}
-	if !tokenDetails.Valid || tokenDetails.UserId != objInfo.UserMetadata["User-Id"] {
 		http.Error(w, "Invalid or missing token", http.StatusUnauthorized)
 		return
 	}

@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"errors"
 	"regexp"
@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/discord/lilliput"
-	"github.com/vmihailenco/msgpack/v5"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var SupportedImages = map[string]bool{
@@ -129,33 +130,23 @@ func getMediaDimensions(lilliputDecoder lilliput.Decoder) (int, int, error) {
 	}
 }
 
-// Delete unclaimed files that are more than 10 minutes old
+// Delete unclaimed files that are more than 30 minutes old
 func cleanupFiles() error {
-	// Get file IDs
-	rows, err := db.Query("SELECT id FROM files WHERE claimed = false AND uploaded_at < $1", time.Now().Unix()-600)
+	cur, err := db.Collection("files").Find(context.TODO(), bson.M{
+		"claimed":     false,
+		"uploaded_at": bson.M{"$lt": time.Now().Unix() - 1800},
+	})
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	fileIds := []string{}
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return err
-		}
-		fileIds = append(fileIds, id)
+
+	var files []File
+	if err := cur.All(context.TODO(), &files); err != nil {
+		return err
 	}
 
-	// Delete files
-	for _, id := range fileIds {
-		// Get full file
-		f, err := GetFile(id)
-		if err != nil {
-			return err
-		}
-
-		// Delete file
-		if err = f.Delete(); err != nil {
+	for _, file := range files {
+		if err := file.Delete(); err != nil {
 			return err
 		}
 	}
@@ -164,32 +155,10 @@ func cleanupFiles() error {
 }
 
 // Get the block status of a file by its hash.
-// Returns whether it's blocked and whether to auto-ban the uploader.
-func getBlockStatus(hashHex string) (bool, bool, error) {
-	var autoBan bool
-	err := db.QueryRow("SELECT auto_ban FROM blocked WHERE hash=$1", hashHex).Scan(&autoBan)
-	if err == sql.ErrNoRows {
-		return false, false, nil
-	} else if err != nil {
-		return false, false, err
-	} else {
-		return true, autoBan, nil
-	}
-}
-
-// Send a request to the main server to ban a user by their username for
-// uploading a blocked file.
-func banUser(username string, fileHash string) error {
-	marshaledEvent, err := msgpack.Marshal(map[string]string{
-		"op":     "ban_user",
-		"user":   username,
-		"state":  "perm_ban",
-		"reason": "",
-		"note":   "Automatically banned by the uploads server for uploading a file that was blocked and set to auto-ban the uploader.\nFile hash: " + fileHash,
-	})
-	if err != nil {
-		return err
-	}
-	err = rdb.Publish(ctx, "admin", marshaledEvent).Err()
-	return err
+// Returns whether it's blocked.
+func getBlockStatus(hashHex string) (bool, error) {
+	opts := options.Count()
+	opts.SetLimit(1)
+	count, err := db.Collection("blocked_files").CountDocuments(context.TODO(), bson.M{"_id": hashHex}, opts)
+	return count > 0, err
 }

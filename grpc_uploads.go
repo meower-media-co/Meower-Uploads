@@ -11,6 +11,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	pb "github.com/meower-media-co/Meower-Uploads/grpc_uploads"
+	"go.mongodb.org/mongo-driver/bson"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -149,6 +150,10 @@ func (s grpcUploadsServer) ClearFiles(ctx context.Context, req *pb.ClearFilesReq
 
 	// Mark files as unclaimed
 	// Files will be deleted when the cleanup thread runs
-	_, err := db.Exec("UPDATE files SET claimed=false WHERE uploaded_by=$1", req.UserId)
+	_, err := db.Collection("files").UpdateMany(
+		context.TODO(),
+		bson.M{"uploaded_by": req.UserId},
+		bson.M{"$set": bson.M{"claimed": false}},
+	)
 	return &emptypb.Empty{}, err
 }

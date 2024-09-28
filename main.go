@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"log"
 	"net"
@@ -22,21 +21,20 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/cors"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 
-	grpcAuth "github.com/meower-media-co/Meower-Uploads/grpc_auth"
 	grpcUploads "github.com/meower-media-co/Meower-Uploads/grpc_uploads"
 )
 
 var ctx context.Context = context.Background()
-var db *sql.DB
+var db *mongo.Database
 var rdb *redis.Client
 var s3Clients = make(map[string]*minio.Client)
 var s3RegionOrder = []string{}
-
-var grpcAuthClient grpcAuth.AuthClient
 
 func main() {
 	var err error
@@ -49,14 +47,22 @@ func main() {
 		Dsn: os.Getenv("SENTRY_DSN"),
 	})
 
-	// Connect to the SQL database
-	db, err = sql.Open(os.Getenv("DB_DRIVER"), os.Getenv("DB_URI"))
+	// Connect to MongoDB
+	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+	mongoOpts := options.Client().ApplyURI(os.Getenv("MONGO_URI")).SetServerAPIOptions(serverAPI)
+	client, err := mongo.Connect(context.TODO(), mongoOpts)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	if err := db.Ping(); err != nil {
+
+	// Ping MongoDB
+	var result bson.M
+	if err := client.Database("admin").RunCommand(context.TODO(), bson.D{{Key: "ping", Value: 1}}).Decode(&result); err != nil {
 		log.Fatalln(err)
 	}
+
+	// Set database
+	db = client.Database(os.Getenv("MONGO_DB"))
 
 	// Connect to Redis
 	opt, err := redis.ParseURL(os.Getenv("REDIS_URI"))
@@ -103,10 +109,10 @@ func main() {
 	}
 
 	if os.Getenv("PRIMARY_NODE") == "1" {
-		// Run migrations
+		/*/ Run migrations
 		if err := runMigrations(); err != nil {
 			log.Fatalln(err)
-		}
+		}*/
 
 		// Files cleanup
 		go func() {
@@ -132,16 +138,6 @@ func main() {
 			}
 		}()
 	}
-
-	// Connect to gRPC Auth service
-	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	grpcAuthConn, err := grpc.Dial(os.Getenv("GRPC_AUTH_ADDRESS"), opts...)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer grpcAuthConn.Close()
-	grpcAuthClient = grpcAuth.NewAuthClient(grpcAuthConn)
 
 	// Create HTTP router
 	r := chi.NewRouter()

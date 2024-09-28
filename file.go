@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -12,49 +13,27 @@ import (
 	"github.com/discord/lilliput"
 	"github.com/getsentry/sentry-go"
 	"github.com/minio/minio-go/v7"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type File struct {
-	Id           string `json:"id"`
-	Hash         string `json:"hash"`
-	Bucket       string `json:"bucket"`
-	Mime         string `json:"mime"`
-	Filename     string `json:"filename,omitempty"`
-	Width        int    `json:"width,omitempty"`
-	Height       int    `json:"height,omitempty"`
-	UploadRegion string `json:"upload_region"`
-	UploadedBy   string `json:"uploaded_by"`
-	UploadedAt   int64  `json:"uploaded_at"`
-	Claimed      bool   `json:"claimed"`
+	Id           string `bson:"_id" json:"id"`
+	Hash         string `bson:"hash" json:"hash"`
+	Bucket       string `bson:"bucket" json:"bucket"`
+	Mime         string `bson:"mime" json:"mime"`
+	Filename     string `bson:"filename,omitempty" json:"filename,omitempty"`
+	Width        int    `bson:"width,omitempty" json:"width,omitempty"`
+	Height       int    `bson:"height,omitempty" json:"height,omitempty"`
+	UploadRegion string `bson:"upload_region" json:"upload_region"`
+	UploadedBy   string `bson:"uploaded_by" json:"uploaded_by"`
+	UploadedAt   int64  `bson:"uploaded_at" json:"uploaded_at"`
+	Claimed      bool   `bson:"claimed,omitempty" json:"claimed"`
 }
 
 func GetFile(id string) (File, error) {
 	var f File
-	err := db.QueryRow(`SELECT
-		id,
-		hash,
-		bucket,
-		mime,
-		filename,
-		width,
-		height,
-		upload_region,
-		uploaded_by,
-		uploaded_at,
-		claimed
-	FROM files WHERE id=$1`, id).Scan(
-		&f.Id,
-		&f.Hash,
-		&f.Bucket,
-		&f.Mime,
-		&f.Filename,
-		&f.Width,
-		&f.Height,
-		&f.UploadRegion,
-		&f.UploadedBy,
-		&f.UploadedAt,
-		&f.Claimed,
-	)
+	err := db.Collection("files").FindOne(context.TODO(), bson.M{"_id": id}).Decode(&f)
 	return f, err
 }
 
@@ -73,14 +52,11 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 	hashHex := hex.EncodeToString(h.Sum(nil))
 
 	// Check block status
-	blocked, autoBan, err := getBlockStatus(hashHex)
+	blocked, err := getBlockStatus(hashHex)
 	if err != nil {
 		return f, err
 	}
 	if blocked {
-		if autoBan {
-			go banUser(uploadedBy, hashHex)
-		}
 		return f, ErrFileBlocked
 	}
 
@@ -147,30 +123,8 @@ func CreateFile(bucket string, fileBytes []byte, filename string, mime string, u
 	// Start loading preview
 	go f.GetPreviewObject()
 
-	// Create database row
-	if _, err = db.Exec(`INSERT INTO files (
-		id,
-		hash,
-		bucket,
-		mime,
-		filename,
-		width,
-		height,
-		upload_region,
-		uploaded_by,
-		uploaded_at
-	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		f.Id,
-		f.Hash,
-		f.Bucket,
-		f.Mime,
-		f.Filename,
-		f.Width,
-		f.Height,
-		f.UploadRegion,
-		f.UploadedBy,
-		f.UploadedAt,
-	); err != nil {
+	// Create database item
+	if _, err := db.Collection("files").InsertOne(context.TODO(), f); err != nil {
 		return f, err
 	}
 
@@ -269,26 +223,24 @@ func (f *File) Claim() error {
 	if f.Claimed {
 		return ErrFileAlreadyClaimed
 	}
-	_, err := db.Exec("UPDATE files SET claimed=$1 WHERE id=$2", true, f.Id)
+	_, err := db.Collection("files").UpdateOne(context.TODO(), bson.M{"_id": f.Id}, bson.M{"$set": bson.M{"claimed": true}})
 	return err
 }
 
 func (f *File) Delete() error {
 	// Delete database row
-	_, err := db.Exec("DELETE FROM files WHERE id=$1", f.Id)
-	if err != nil {
+	if _, err := db.Collection("files").DeleteOne(context.TODO(), bson.M{"_id": f.Id}); err != nil {
 		return err
 	}
 
 	// Clean-up object if nothing else is referencing it
-	var stillReferenced bool
-	err = db.QueryRow(`SELECT EXISTS(
-		SELECT 1 FROM files WHERE hash=$1 AND bucket=$2
-	)`, f.Hash, f.Bucket).Scan(&stillReferenced)
+	opts := options.Count()
+	opts.SetLimit(1)
+	referencedCount, err := db.Collection("files").CountDocuments(context.TODO(), bson.M{"hash": f.Hash}, opts)
 	if err != nil {
 		return err
 	}
-	if !stillReferenced {
+	if referencedCount == 0 {
 		for _, s3Client := range s3Clients {
 			go s3Client.RemoveObject(ctx, f.Bucket, f.Hash, minio.RemoveObjectOptions{})
 			if f.Bucket == "attachments" {
