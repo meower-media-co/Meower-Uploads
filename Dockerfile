@@ -6,7 +6,6 @@ RUN go mod download
 RUN go build -o /Meower-Uploads
 
 # Production stage
-FROM debian
+FROM golang:1.23-bookworm
 COPY --from=builder /app/Meower-Uploads /Meower-Uploads
-RUN apt install libc6
 ENTRYPOINT ["/Meower-Uploads"]
