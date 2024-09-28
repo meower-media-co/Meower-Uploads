@@ -1,5 +1,5 @@
 # Build stage
-FROM --platform=$BUILDPLATFORM golang AS builder
+FROM golang AS builder
 WORKDIR /app
 COPY . .
 RUN go mod download
