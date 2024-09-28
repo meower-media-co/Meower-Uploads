@@ -13,10 +13,8 @@ import (
 	"crypto/x509"
 
 	"github.com/getsentry/sentry-go"
-	_ "github.com/glebarez/go-sqlite"
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
-	_ "github.com/lib/pq"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/redis/go-redis/v9"

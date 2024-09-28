@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +11,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/go-chi/chi/v5"
 	"github.com/minio/minio-go/v7"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 func uploadFile(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +85,7 @@ func downloadFile(w http.ResponseWriter, r *http.Request) {
 	// Get file
 	f, err := GetFile(chi.URLParam(r, "id"))
 	if err != nil || f.Bucket != chi.URLParam(r, "bucket") {
-		if err != nil && err != sql.ErrNoRows {
+		if err != nil && err != mongo.ErrNoDocuments {
 			sentry.CaptureException(err)
 		}
 		http.Error(w, "Not found", http.StatusNotFound)

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	pb "github.com/meower-media-co/Meower-Uploads/grpc_uploads"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -30,7 +30,7 @@ func (s grpcUploadsServer) ClaimFile(ctx context.Context, req *pb.ClaimFileReq) 
 	// Get file
 	f, err := GetFile(req.Id)
 	if err != nil {
-		if err != sql.ErrNoRows {
+		if err != mongo.ErrNoDocuments {
 			sentry.CaptureException(err)
 		}
 		return nil, err
@@ -78,7 +78,7 @@ func (s grpcUploadsServer) DeleteFile(ctx context.Context, req *pb.DeleteFileReq
 	// Get file
 	f, err := GetFile(req.Id)
 	if err != nil {
-		if err != sql.ErrNoRows {
+		if err != mongo.ErrNoDocuments {
 			sentry.CaptureException(err)
 		}
 		return nil, err
